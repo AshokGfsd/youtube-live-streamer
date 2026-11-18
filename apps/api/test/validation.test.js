@@ -25,3 +25,11 @@ test('validates public deployment secrets and URL', () => {
   assert.throws(() => assertValidConfiguration({ DASHBOARD_TOKEN: token, YOUTUBE_RTMPS_URL: 'http://bad' }));
   assert.equal(assertValidConfiguration({ DASHBOARD_TOKEN: token }).maxBytes, 4 * 1024 ** 3);
 });
+
+test('allows token-free mode only for a loopback-bound bundled dashboard', () => {
+  const local = { LOCAL_ONLY_MODE: 'true', LISTEN_HOST: '127.0.0.1', WEB_STATIC_DIR: './public' };
+  assert.equal(assertValidConfiguration(local).maxBytes, 4 * 1024 ** 3);
+  assert.throws(() => assertValidConfiguration({ ...local, LISTEN_HOST: '0.0.0.0' }), /LOCAL_ONLY_MODE/);
+  assert.throws(() => assertValidConfiguration({ ...local, LISTEN_HOST: 'localhost' }), /LOCAL_ONLY_MODE/);
+  assert.throws(() => assertValidConfiguration({ ...local, WEB_STATIC_DIR: '' }), /LOCAL_ONLY_MODE/);
+});

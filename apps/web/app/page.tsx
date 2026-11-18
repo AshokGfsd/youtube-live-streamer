@@ -61,6 +61,8 @@ export default function Home() {
   const [apiUrl, setApiUrl] = useState(DEFAULT_API);
   const [token, setToken] = useState('');
   const [connected, setConnected] = useState(false);
+  const [localOnly, setLocalOnly] = useState(false);
+  const [checkingLocal, setCheckingLocal] = useState(true);
   const [status, setStatus] = useState<StreamStatus | null>(null);
   const [selected, setSelected] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -75,14 +77,6 @@ export default function Home() {
   const [mobileNav, setMobileNav] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const savedUrl = localStorage.getItem('streamforge-api-url');
-    const savedToken = sessionStorage.getItem('streamforge-token');
-    if (savedUrl) setApiUrl(savedUrl);
-    else if (!process.env.NEXT_PUBLIC_API_BASE_URL) setApiUrl(window.location.origin);
-    if (savedToken) setToken(savedToken);
-  }, []);
-
   const fetchStatus = useCallback(async (currentUrl: string, currentToken: string) => {
     const response = await fetch(currentUrl.replace(/\/$/, '') + '/api/status', {
       headers: { Authorization: 'Bearer ' + currentToken },
@@ -93,7 +87,46 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!connected || !token) return;
+    let cancelled = false;
+    const savedUrl = localStorage.getItem('streamforge-api-url');
+    const savedToken = sessionStorage.getItem('streamforge-token');
+    if (savedUrl) setApiUrl(savedUrl);
+    else if (!process.env.NEXT_PUBLIC_API_BASE_URL) setApiUrl(window.location.origin);
+    if (savedToken) setToken(savedToken);
+
+    // Android serves the static dashboard and its API from one loopback origin.
+    // Probe the server so this works without a token or setup modal.
+    if (process.env.NEXT_PUBLIC_API_BASE_URL || !['127.0.0.1', 'localhost'].includes(window.location.hostname)) {
+      setCheckingLocal(false);
+      return;
+    }
+    (async () => {
+      try {
+        const origin = window.location.origin;
+        const response = await fetch(origin + '/health', { cache: 'no-store' });
+        if (!response.ok || (await response.json()).localOnly !== true) return;
+        const currentStatus = await fetchStatus(origin, '');
+        if (cancelled) return;
+        setLocalOnly(true);
+        setApiUrl(origin);
+        setToken('');
+        sessionStorage.removeItem('streamforge-token');
+        localStorage.removeItem('streamforge-api-url');
+        setStatus(currentStatus);
+        setRepeat(currentStatus.loop);
+        setConnected(true);
+        setShowSetup(false);
+      } catch {
+        // Older or cloud servers still use the secure connection form.
+      } finally {
+        if (!cancelled) setCheckingLocal(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [fetchStatus]);
+
+  useEffect(() => {
+    if (!connected) return;
     const poll = setInterval(async () => {
       try {
         setStatus(await fetchStatus(apiUrl, token));
@@ -256,7 +289,7 @@ export default function Home() {
         </nav>
         <div className="nav-caption nav-caption-second">CONFIGURATION</div>
         <nav className="sidebar-links" aria-label="Settings navigation">
-          <button className="nav-link" onClick={() => { setShowSetup(true); setMobileNav(false); }}><Settings2 size={18} /> Server settings</button>
+          {!localOnly && <button className="nav-link" onClick={() => { setShowSetup(true); setMobileNav(false); }}><Settings2 size={18} /> Server settings</button>}
           <a className="nav-link" href="https://studio.youtube.com/" target="_blank" rel="noopener noreferrer"><Youtube size={18} /> YouTube Studio <ExternalLink size={14} className="link-external" /></a>
         </nav>
         <div className="sidebar-footer">
@@ -272,12 +305,12 @@ export default function Home() {
         </header>
 
         <div className="content">
-          <div className="welcome"><div><span className="eyebrow"><span className="eyebrow-line" /> YOUR BROADCAST COMMAND CENTER</span><h1>Let&apos;s go <em>live.</em></h1><p>Upload a video, hit start, and let your cloud server take it from there.</p></div><div className="welcome-time"><Cloud size={17}/><span>Cloud-powered streaming</span></div></div>
+          <div className="welcome"><div><span className="eyebrow"><span className="eyebrow-line" /> YOUR BROADCAST COMMAND CENTER</span><h1>Let&apos;s go <em>live.</em></h1><p>Upload a video, hit start, and let your {localOnly ? 'phone' : 'cloud server'} take it from there.</p></div><div className="welcome-time"><Cloud size={17}/><span>{localOnly ? 'Android-powered streaming' : 'Cloud-powered streaming'}</span></div></div>
 
           {(error || notice) && <div role={error ? 'alert' : 'status'} className={'toast-message ' + (error ? 'error-message' : 'success-message')}><span>{error || notice}</span><button aria-label="Dismiss message" onClick={() => { setError(''); setNotice(''); }}><X size={17}/></button></div>}
 
           <div className="overview-grid">
-            <div className="overview-card status-overview"><div className="mini-icon"><Radio size={19}/></div><div className="overview-label">STREAM STATUS</div><div className="overview-value"><span className={'large-dot ' + phaseClass}/>{phase}</div><span className="overview-meta">{isRunning ? 'Cloud encoder is active' : 'Ready when you are'}</span></div>
+            <div className="overview-card status-overview"><div className="mini-icon"><Radio size={19}/></div><div className="overview-label">STREAM STATUS</div><div className="overview-value"><span className={'large-dot ' + phaseClass}/>{phase}</div><span className="overview-meta">{isRunning ? (localOnly ? 'Phone encoder is active' : 'Cloud encoder is active') : 'Ready when you are'}</span></div>
             <div className="overview-card"><div className="mini-icon purple"><HardDrive size={19}/></div><div className="overview-label">VIDEO READY</div><div className="overview-value">{status?.video ? '01' : '00'} <span className="overview-value-soft">file</span></div><span className="overview-meta">{status?.video ? displaySize(status.video.sizeBytes) + ' uploaded' : 'No file uploaded yet'}</span></div>
             <div className="overview-card"><div className="mini-icon orange"><Activity size={19}/></div><div className="overview-label">STREAM UPTIME</div><div className="overview-value numeric">{displayDuration(elapsed)}</div><span className="overview-meta">{isRunning ? 'Since you started streaming' : 'Not streaming currently'}</span></div>
           </div>
@@ -303,26 +336,26 @@ export default function Home() {
                 </>}
               </div>
 
-              {busy === 'upload' && <div className="progress-row"><div className="progress-label"><span>Uploading to your cloud server…</span><b>{progress}%</b></div><div className="progress-track"><div style={{ width: progress + '%' }} className="progress-fill" /></div><p>Leave this page open until the upload finishes.</p></div>}
+              {busy === 'upload' && <div className="progress-row"><div className="progress-label"><span>Uploading to your {localOnly ? 'phone' : 'cloud server'}…</span><b>{progress}%</b></div><div className="progress-track"><div style={{ width: progress + '%' }} className="progress-fill" /></div><p>Leave this page open until the upload finishes.</p></div>}
 
               {status?.video && <div className="current-video"><div className="video-thumb"><Film size={22}/></div><div className="current-video-details"><span className="small-uppercase">CURRENTLY ON SERVER</span><b title={status.video.name}>{status.video.name}</b><span>{displaySize(status.video.sizeBytes)} <span className="middle-dot">·</span> {displayDuration(status.video.durationSeconds)} <span className="middle-dot">·</span> {status.video.hasAudio ? 'With audio' : 'Silent audio added'}</span></div><CheckCircle2 size={20} className="video-check"/></div>}
 
               {selected && <button className="primary-button upload-submit" onClick={upload} disabled={!online || isBusy || isRunning}>{busy === 'upload' ? <LoaderCircle size={18} className="spin" /> : <UploadCloud size={18}/>} {busy === 'upload' ? 'Uploading…' : 'Upload to server'}</button>}
-              {!online && <div className="inline-note"><CircleHelp size={16}/> Connect your cloud server to enable uploads.</div>}
+              {!online && !checkingLocal && <div className="inline-note"><CircleHelp size={16}/> {localOnly ? 'Restart StreamForge in Termux to enable uploads.' : 'Connect your cloud server to enable uploads.'}</div>}
             </section>
 
             <section className="panel broadcast-panel">
               <div className="panel-heading"><div><span className="step-label">STEP 02</span><h2>Broadcast controls</h2><p>Manage your YouTube stream.</p></div><div className="panel-heading-icon"><Radio size={21}/></div></div>
 
-              <div className="destination"><div className="youtube-logo"><Youtube size={26} fill="currentColor" strokeWidth={1.3}/></div><div><b>YouTube Live</b><span>{status?.hasStreamKey ? 'Stream key configured on server' : 'Add your YouTube stream key on the VM'}</span></div><span className={'destination-tag ' + (status?.hasStreamKey ? 'configured' : '')}>{status?.hasStreamKey ? <><Check size={12}/> READY</> : 'SETUP'}</span></div>
+              <div className="destination"><div className="youtube-logo"><Youtube size={26} fill="currentColor" strokeWidth={1.3}/></div><div><b>YouTube Live</b><span>{status?.hasStreamKey ? 'Stream key configured on server' : localOnly ? 'Add YouTube stream key in your Termux .env' : 'Add your YouTube stream key on the VM'}</span></div><span className={'destination-tag ' + (status?.hasStreamKey ? 'configured' : '')}>{status?.hasStreamKey ? <><Check size={12}/> READY</> : 'SETUP'}</span></div>
 
               <div className="stream-option"><div className="option-icon"><RotateCcw size={19}/></div><div className="option-copy"><b>Loop video continuously</b><p>Repeat the video until you stop streaming.</p></div><button className={'toggle ' + (repeat ? 'checked' : '')} role="switch" aria-label="Loop video" aria-checked={repeat} onClick={() => setRepeat(!repeat)} disabled={isRunning || isBusy}><span/></button></div>
 
-              <div className="ready-list"><div><span className={'readiness-dot ' + (online ? 'pass' : '')}/>{online ? 'Cloud server connected' : 'Cloud server not connected'}</div><div><span className={'readiness-dot ' + (status?.hasStreamKey ? 'pass' : '')}/>{status?.hasStreamKey ? 'YouTube stream key ready' : 'YouTube stream key needed'}</div><div><span className={'readiness-dot ' + (status?.video ? 'pass' : '')}/>{status?.video ? 'Video uploaded and checked' : 'Video upload needed'}</div></div>
+              <div className="ready-list"><div><span className={'readiness-dot ' + (online ? 'pass' : '')}/>{localOnly ? (online ? 'Phone server connected' : 'Phone server not connected') : (online ? 'Cloud server connected' : 'Cloud server not connected')}</div><div><span className={'readiness-dot ' + (status?.hasStreamKey ? 'pass' : '')}/>{status?.hasStreamKey ? 'YouTube stream key ready' : 'YouTube stream key needed'}</div><div><span className={'readiness-dot ' + (status?.video ? 'pass' : '')}/>{status?.video ? 'Video uploaded and checked' : 'Video upload needed'}</div></div>
 
               {isRunning ? <button className="stop-button" onClick={() => action('stop')} disabled={isBusy}>{busy === 'stop' ? <LoaderCircle size={19} className="spin"/> : <Square size={17} fill="currentColor"/>} Stop streaming</button>
                 : <button className="go-live-button" onClick={() => action('start')} disabled={!online || !status?.video || !status.hasStreamKey || isBusy}>{busy === 'start' ? <LoaderCircle size={19} className="spin"/> : <Play size={19} fill="currentColor"/>} Start streaming <ArrowUpRight size={18}/></button>}
-              <div className="broadcast-footnote"><ShieldCheck size={15}/> Stream runs on the VM, even after you close the browser.</div>
+              <div className="broadcast-footnote"><ShieldCheck size={15}/> {localOnly ? 'Stream continues in Termux after closing Chrome; keep the phone on.' : 'Stream runs on the VM, even after you close the browser.'}</div>
             </section>
           </div>
 
@@ -339,7 +372,7 @@ export default function Home() {
         </div>
       </main>
 
-      {(!online || showSetup) && <div className="modal-overlay" role="presentation"><div className="connection-modal" role="dialog" aria-modal="true" aria-labelledby="connect-title"><div className="modal-head"><div className="modal-icon"><Link2 size={24}/></div>{online && <button className="icon-button" aria-label="Close settings" onClick={() => setShowSetup(false)}><X size={20}/></button>}</div><span className="step-label">SECURE CONNECTION</span><h2 id="connect-title">Connect your cloud server</h2><p>Your Oracle VM handles uploads and keeps FFmpeg running while this page is closed. Enter your server address and private dashboard token.</p>
+      {!localOnly && !checkingLocal && (!online || showSetup) && <div className="modal-overlay" role="presentation"><div className="connection-modal" role="dialog" aria-modal="true" aria-labelledby="connect-title"><div className="modal-head"><div className="modal-icon"><Link2 size={24}/></div>{online && <button className="icon-button" aria-label="Close settings" onClick={() => setShowSetup(false)}><X size={20}/></button>}</div><span className="step-label">SECURE CONNECTION</span><h2 id="connect-title">Connect your cloud server</h2><p>Your cloud VM handles uploads and keeps FFmpeg running while this page is closed. Enter your server address and private dashboard token.</p>
         <label htmlFor="api-address">Server API URL</label><div className="input-wrap"><Cloud size={19}/><input id="api-address" value={apiUrl} onChange={(event) => setApiUrl(event.target.value)} placeholder="https://stream.example.com" autoComplete="url"/></div>
         <label htmlFor="owner-token">Dashboard access token</label><div className="input-wrap"><KeyRound size={19}/><input id="owner-token" type="password" value={token} onChange={(event) => setToken(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') connect(); }} placeholder="Your DASHBOARD_TOKEN from the VM" autoComplete="off"/></div>
         {error && <div className="modal-error" role="alert">{error}</div>}

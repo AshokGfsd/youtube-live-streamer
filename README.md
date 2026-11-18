@@ -6,6 +6,8 @@ You can also run the **Node.js + FFmpeg backend on an Android phone in Termux**,
 
 The Android setup serves the dashboard at `http://127.0.0.1:4000` on the same phone, so no public server or HTTPS tunnel is required. **The phone stays on** and Android may stop background tasks; this is not unattended cloud hosting with an uptime guarantee.
 
+**Android personal mode:** The prebuilt Termux bundle starts with `LOCAL_ONLY_MODE=true`, serves the app only on `127.0.0.1`, and automatically opens the dashboard without a token/login popup. Never expose this phone-only endpoint to the public internet or a network tunnel. Cloud deployments still require `DASHBOARD_TOKEN` and their normal CSP.
+
 Upload one video from a Next.js dashboard, then use a self-hosted Node.js + FFmpeg encoder to send it to YouTube Live. The actual stream runs on an Oracle Cloud VM and **continues when your browser and PC are off**.
 
 > This is a personal, single-owner streaming tool. It uses a YouTube Studio stream key, not Google OAuth. One-time setup in YouTube Studio is required. Clicking **Start streaming** starts RTMPS ingestion; the YouTube broadcast goes live automatically only if **Auto-start** is enabled in YouTube Studio.
@@ -28,7 +30,7 @@ Upload one video from a Next.js dashboard, then use a self-hosted Node.js + FFmp
 - Transcode to 1280×720, H.264 video + AAC audio; supply silent audio if the original has no audio.
 - Retry interrupted FFmpeg streams and resume intended streams when the API restarts.
 - Live encoder status and redacted log messages (never disclose the stream key to the dashboard).
-- Protect all control endpoints with an owner access token; browser uses HTTPS to the VM.
+- Protect cloud control endpoints with an owner access token; browser uses HTTPS to the VM. Local-only Android mode uses loopback isolation instead of a token.
 
 **What this version does not do:** create YouTube broadcasts automatically, show real viewer metrics, schedule broadcasts, or stream without enabling YouTube Live in Studio. API status **Sending to YouTube** means FFmpeg is running; check YouTube Studio to confirm the actual broadcast is public/live.
 

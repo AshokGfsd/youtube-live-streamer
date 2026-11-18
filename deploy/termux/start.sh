@@ -31,8 +31,8 @@ termux-wake-lock
 if tmux has-session -t streamforge 2>/dev/null; then
   printf 'StreamForge server is already running.\n'
 else
-  tmux new-session -d -s streamforge -c "$APP_DIR" 'node src/server.js'
-  printf 'Started StreamForge in a Termux background session.\n'
+  tmux new-session -d -s streamforge -c "$APP_DIR" 'LOCAL_ONLY_MODE=true node src/server.js'
+  printf 'Started StreamForge in a private, phone-only background session (no login).\n'
 fi
 
 printf '\nOpen http://127.0.0.1:4000 in Chrome on THIS PHONE.\n'

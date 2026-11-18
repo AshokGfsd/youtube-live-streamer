@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
+import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -71,6 +72,63 @@ test('API health works but control endpoints require the owner token', async () 
       assert.equal(uploadStatus.video?.name, 'sample.mp4');
       assert.equal(uploadStatus.video?.hasAudio, false);
     }
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((resolve) => {
+      if (child.exitCode !== null) resolve();
+      else { child.once('close', resolve); setTimeout(resolve, 3500).unref(); }
+    });
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Android local-only server opens without a token and blocks nonlocal origins', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'streamforge-local-test-'));
+  const staticDir = path.join(dir, 'public');
+  await fs.mkdir(staticDir);
+  await fs.writeFile(path.join(staticDir, 'index.html'), '<!doctype html><title>Android Studio</title>');
+  const port = 42000 + Math.floor(Math.random() * 12000);
+  const child = spawn(process.execPath, ['src/server.js'], {
+    cwd: path.resolve(import.meta.dirname, '..'),
+    env: {
+      ...process.env,
+      PORT: String(port), DASHBOARD_TOKEN: '', LOCAL_ONLY_MODE: 'true',
+      YOUTUBE_STREAM_KEY: '', DATA_DIR: dir, WEB_STATIC_DIR: staticDir, LISTEN_HOST: '127.0.0.1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const address = `http://127.0.0.1:${port}`;
+  try {
+    let healthy = false;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (child.exitCode !== null) throw new Error('Android API exited during startup');
+      try {
+        const response = await fetch(address + '/health', { signal: AbortSignal.timeout(300) });
+        if (response.ok) { healthy = true; break; }
+      } catch { /* wait for binding */ }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(healthy, true, 'phone server should become healthy');
+    const health = await (await fetch(address + '/health')).json();
+    assert.equal(health.localOnly, true);
+    const dashboard = await fetch(address + '/');
+    assert.equal(dashboard.status, 200);
+    assert.equal(dashboard.headers.get('content-security-policy'), null, 'static Next.js hydration must not be blocked');
+    const status = await fetch(address + '/api/status');
+    assert.equal(status.status, 200, 'local dashboard must work without a token');
+    const allowed = await fetch(address + '/api/status', { headers: { Origin: address } });
+    assert.equal(allowed.status, 200);
+    const foreign = await fetch(address + '/api/status', { headers: { Origin: 'https://evil.example' } });
+    assert.equal(foreign.status, 403);
+    const fakeHostStatus = await new Promise((resolve, reject) => {
+      http.get(address + '/api/status', { headers: { Host: 'evil.example' } }, (response) => {
+        response.resume();
+        resolve(response.statusCode);
+      }).on('error', reject);
+    });
+    assert.equal(fakeHostStatus, 403);
+    const foreignPost = await fetch(address + '/api/stop', { method: 'POST', headers: { Origin: 'https://evil.example' } });
+    assert.equal(foreignPost.status, 403, 'cross-site requests cannot change streams');
   } finally {
     child.kill('SIGTERM');
     await new Promise((resolve) => {

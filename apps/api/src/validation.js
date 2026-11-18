@@ -25,7 +25,11 @@ export function formatSize(bytes) {
 }
 
 export function assertValidConfiguration(env) {
-  if (!env.DASHBOARD_TOKEN || env.DASHBOARD_TOKEN.length < 24 || env.DASHBOARD_TOKEN === 'replace-with-long-random-token') {
+  const localOnly = env.LOCAL_ONLY_MODE === 'true';
+  if (localOnly && (env.LISTEN_HOST !== '127.0.0.1' || !env.WEB_STATIC_DIR)) {
+    throw new Error('LOCAL_ONLY_MODE requires LISTEN_HOST=127.0.0.1 and WEB_STATIC_DIR');
+  }
+  if (!localOnly && (!env.DASHBOARD_TOKEN || env.DASHBOARD_TOKEN.length < 24 || env.DASHBOARD_TOKEN === 'replace-with-long-random-token')) {
     throw new Error('Set DASHBOARD_TOKEN to at least 24 random characters');
   }
   if (env.YOUTUBE_STREAM_KEY && !/^[a-zA-Z0-9_-]+$/.test(env.YOUTUBE_STREAM_KEY)) {

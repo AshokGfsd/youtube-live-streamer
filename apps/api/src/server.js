@@ -15,6 +15,7 @@ import { assertValidConfiguration, safeEquals, validVideoName } from './validati
 const execFileAsync = promisify(execFile);
 const env = process.env;
 const { base: rtmpsUrl, maxBytes } = assertValidConfiguration(env);
+const localOnly = env.LOCAL_ONLY_MODE === 'true';
 const dataDir = path.resolve(env.DATA_DIR || './data');
 const manager = new StreamManager({
   dataDir, streamKey: env.YOUTUBE_STREAM_KEY, rtmpsUrl,
@@ -30,9 +31,32 @@ await manager.initialize();
 
 const app = express();
 app.disable('x-powered-by');
-app.use(helmet());
+// Next.js static exports use inline hydration scripts. Allow them only on the
+// loopback-bound personal Android server; retain the usual CSP in cloud mode.
+app.use(helmet({ contentSecurityPolicy: localOnly ? false : undefined }));
+if (localOnly) {
+  app.use((req, res, next) => {
+    const requestedHost = req.get('host') || '';
+    const port = Number(env.PORT || 4000);
+    if (requestedHost !== `127.0.0.1:${port}` && requestedHost !== `localhost:${port}`) {
+      return res.status(403).json({ error: 'Local phone access only' });
+    }
+    next();
+  });
+}
 app.use(cors((req, callback) => callback(null, {
   origin(origin, done) {
+    if (localOnly) {
+      if (!origin) return done(null, true);
+      try {
+        const parsed = new URL(origin);
+        const port = Number(env.PORT || 4000);
+        if (parsed.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(parsed.hostname) && parsed.port === String(port)) {
+          return done(null, true);
+        }
+      } catch { /* reject */ }
+      return done(new Error('Origin not allowed'));
+    }
     const allowed = (env.FRONTEND_ORIGIN || 'http://localhost:3000').split(',').map((value) => value.trim());
     let sameOrigin = false;
     if (origin && env.WEB_STATIC_DIR) {
@@ -46,9 +70,10 @@ app.use(cors((req, callback) => callback(null, {
 })));
 app.use(express.json({ limit: '32kb' }));
 
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'streamforge-api' }));
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'streamforge-api', localOnly }));
 
 app.use('/api', (req, res, next) => {
+  if (localOnly) return next();
   const expected = 'Bearer ' + env.DASHBOARD_TOKEN;
   if (!safeEquals(req.get('authorization') || '', expected)) {
     return res.status(401).json({ error: 'Invalid dashboard access token' });
