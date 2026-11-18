@@ -4,6 +4,30 @@ This ZIP contains the **prebuilt Next.js dashboard** and the **Node.js + FFmpeg 
 
 **Your phone becomes the server.** You can close Chrome and switch apps while streaming, but **the phone must stay switched on, connected to the internet, and allowed to run Termux in the background**. Android can still kill background or CPU-intensive processes. This is not guaranteed 24/7 cloud hosting.
 
+## Git clone instead of ZIP (recommended for easy updates)
+
+The repository now includes prebuilt Android frontend files, so you don't need to compile Next.js on your phone:
+
+```bash
+pkg install git nodejs ffmpeg tmux -y
+cd "$HOME"
+git clone https://github.com/AshokGfsd/youtube-live-streamer.git
+cd youtube-live-streamer
+bash start-android.sh
+```
+
+On the first run, set `YOUTUBE_STREAM_KEY` in `nano ~/StreamForge-Android/.env`, then run `bash start-android.sh` again. Open `http://127.0.0.1:4000`. For subsequent updates:
+
+```bash
+cd ~/youtube-live-streamer
+git pull
+bash start-android.sh
+```
+
+It preserves `.env` and `data/` in `~/StreamForge-Android`. Stop an active broadcast before updating: the start script restarts the Termux server. **Never expose port 4000 publicly** while in password-free local mode.
+
+The ZIP method below is an alternative if you prefer not to use Git.
+
 ## Before starting
 
 - Install Termux from [F-Droid](https://f-droid.org/en/packages/com.termux/), or from the official Termux GitHub project. Avoid mixing Termux and add-ons from different distributors.
