@@ -1,8 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChannelError, SecretBox, validateChannelStep, ChannelStore } from '../src/channel-store.js';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { ChannelError, SecretBox, validateChannelStep, ChannelStore, resolveChannelEncryptionKey } from '../src/channel-store.js';
 
 const KEY = 'a'.repeat(64);
+
+test('private Android server creates and reuses an encryption key without login setup', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'streamforge-private-key-'));
+  try {
+    const env = { LOCAL_ONLY_MODE: 'true', DATA_DIR: dir, CHANNEL_ENCRYPTION_KEY: 'YOUR_GENERATED_64_CHARACTER_KEY' };
+    const key = await resolveChannelEncryptionKey(env);
+    assert.match(key, /^[a-f0-9]{64}$/);
+    assert.equal(await resolveChannelEncryptionKey({ ...env, CHANNEL_ENCRYPTION_KEY: '' }), key);
+    assert.equal((await fs.stat(path.join(dir, 'channel-encryption.key'))).mode & 0o777, 0o600);
+    assert.equal(await resolveChannelEncryptionKey({ ...env, CHANNEL_ENCRYPTION_KEY: KEY }), KEY);
+    assert.equal(await resolveChannelEncryptionKey({ LOCAL_ONLY_MODE: 'false' }), '');
+  } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});
 
 test('encrypts stream keys with authenticated encryption and never stores plaintext', () => {
   const box = new SecretBox(KEY);

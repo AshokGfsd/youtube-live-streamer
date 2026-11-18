@@ -75,15 +75,22 @@ single-stream dashboard continues working without a database.
    EXIT;
    ```
 
-4. Create an **independent encryption key** (do not reuse your stream key):
+4. On this **private Android-only app**, the encryption key is generated and
+   saved automatically inside `DATA_DIR` when you configure MySQL. You do not
+   need to set `CHANNEL_ENCRYPTION_KEY` or sign in to a dashboard.
+
+   For an existing installation that already encrypted channel secrets, keep
+   the original key! Do not delete the persistent key file or move the database
+   without its associated key.
+
+   Open the configuration:
 
    ```bash
-   openssl rand -hex 32
    nano ~/StreamForge-Android/.env
    ```
 
    Add these fields to the **existing** `.env` and substitute your password and
-   generated 64-character encryption key:
+   database password:
 
    ```dotenv
    MYSQL_HOST=127.0.0.1
@@ -91,13 +98,13 @@ single-stream dashboard continues working without a database.
    MYSQL_USER=streamforge
    MYSQL_PASSWORD=CHOOSE_A_PRIVATE_PASSWORD
    MYSQL_DATABASE=streamforge
-   CHANNEL_ENCRYPTION_KEY=YOUR_64_CHARACTER_HEX_KEY
+   CHANNEL_ENCRYPTION_KEY=
    MAX_CONCURRENT_STREAMS=1
    ```
 
-   **Do not paste secrets into GitHub or chat. Never change or lose
-   `CHANNEL_ENCRYPTION_KEY`: saved keys would become unreadable. Back up your
-   private `.env` securely.** The backend automatically creates its table on
+   **Do not paste secrets into GitHub or chat. Never delete your generated
+   channel encryption key file: saved keys would become unreadable. Back up
+   your private data directory securely.** The backend automatically creates its table on
    startup; no SQL migration tool is needed.
 
 5. Pull and start the latest app:

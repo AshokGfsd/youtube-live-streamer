@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import mysql from 'mysql2/promise';
 
 export class ChannelError extends Error {
@@ -206,9 +208,37 @@ export class ChannelStore {
   }
 }
 
+// The Android studio runs locally without a login. Keep channel secrets encrypted
+// transparently rather than making a single-phone owner manage a separate key.
+// The generated key is persistent and remains outside the Git checkout.
+export async function resolveChannelEncryptionKey(env = process.env) {
+  const provided = String(env.CHANNEL_ENCRYPTION_KEY || '').trim();
+  if (provided && provided !== 'YOUR_GENERATED_64_CHARACTER_KEY') return provided;
+  if (env.LOCAL_ONLY_MODE !== 'true') return provided;
+
+  const directory = path.resolve(env.DATA_DIR || './data');
+  const filename = path.join(directory, 'channel-encryption.key');
+  await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+  try {
+    return (await fs.readFile(filename, 'utf8')).trim();
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+
+  const created = crypto.randomBytes(32).toString('hex');
+  try {
+    await fs.writeFile(filename, created + '\n', { flag: 'wx', mode: 0o600 });
+    return created;
+  } catch (error) {
+    // A second local process could have created the key in the meantime.
+    if (error.code !== 'EEXIST') throw error;
+    return (await fs.readFile(filename, 'utf8')).trim();
+  }
+}
+
 export async function createChannelStore(env = process.env) {
   if (!env.MYSQL_DATABASE) return null;
-  const secrets = new SecretBox(env.CHANNEL_ENCRYPTION_KEY);
+  const secrets = new SecretBox(await resolveChannelEncryptionKey(env));
   const pool = mysql.createPool({ host: env.MYSQL_HOST || '127.0.0.1', port: Number(env.MYSQL_PORT || 3306),
     user: env.MYSQL_USER || 'streamforge', password: env.MYSQL_PASSWORD || '', database: env.MYSQL_DATABASE,
     waitForConnections: true, connectionLimit: 4, enableKeepAlive: true });
