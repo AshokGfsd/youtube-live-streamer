@@ -16,6 +16,9 @@ test('API health works but control endpoints require the owner token', async () 
   await fs.mkdir(staticDir);
   await fs.writeFile(path.join(staticDir, 'index.html'), '<!doctype html><title>StreamForge Android</title>');
   await fs.writeFile(path.join(staticDir, 'channels.html'), '<!doctype html><title>My Channels</title>');
+  await fs.mkdir(path.join(staticDir, 'channels'));
+  await fs.writeFile(path.join(staticDir, 'instagram-live.html'), '<!doctype html><title>Instagram Reels Live</title>');
+  await fs.mkdir(path.join(staticDir, 'instagram-live'));
   const token = 'integration-test-access-token-very-long';
   const port = 42000 + Math.floor(Math.random() * 12000);
   const child = spawn(process.execPath, ['src/server.js'], {
@@ -41,6 +44,15 @@ test('API health works but control endpoints require the owner token', async () 
     const channelPage = await fetch(address + '/channels');
     assert.equal(channelPage.status, 200);
     assert.match(await channelPage.text(), /My Channels/);
+    const channelSlashPage = await fetch(address + '/channels/');
+    assert.equal(channelSlashPage.status, 200);
+    assert.match(await channelSlashPage.text(), /My Channels/);
+    const reelsPage = await fetch(address + '/instagram-live/');
+    assert.equal(reelsPage.status, 200);
+    assert.match(await reelsPage.text(), /Instagram Reels Live/);
+    const reelsWithoutSlash = await fetch(address + '/instagram-live');
+    assert.equal(reelsWithoutSlash.status, 200);
+    assert.match(await reelsWithoutSlash.text(), /Instagram Reels Live/);
     const anonymous = await fetch(address + '/api/status');
     assert.equal(anonymous.status, 401);
     const authenticated = await fetch(address + '/api/status', { headers: { Authorization: 'Bearer ' + token } });

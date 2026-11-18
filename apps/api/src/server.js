@@ -247,6 +247,15 @@ if (env.WEB_STATIC_DIR) {
   if (!existsSync(path.join(staticDir, 'index.html'))) {
     throw new Error('WEB_STATIC_DIR must contain a prebuilt index.html');
   }
+  // Next.js static export writes "instagram-live.html" plus an
+  // "instagram-live/" folder for React Server Component payloads. Express's
+  // directory redirect would otherwise send /instagram-live to
+  // /instagram-live/, where no index.html exists (Cannot GET).
+  for (const page of ['channels', 'instagram-live']) {
+    app.get([`/${page}`, `/${page}/`], (_req, res) => {
+      res.sendFile(path.join(staticDir, `${page}.html`));
+    });
+  }
   app.use(express.static(staticDir, { extensions: ['html'] }));
 }
 
