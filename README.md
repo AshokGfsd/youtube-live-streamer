@@ -1,5 +1,10 @@
 # StreamForge — Your YouTube cloud livestream studio
 
+> **Experimental Android Instagram Reels auto-scroll proof of concept:**
+> See [the Phase 1 testing guide](docs/instagram-reels-android-prototype.md).
+> This tests a manually logged-in Chromium browser and synthetic feed;
+> Instagram-to-YouTube livestreaming is **not** implemented or verified yet.
+
 ## Multi-channel studio (new)
 
 Visit **`/channels`** to create and manage multiple YouTube channel profiles

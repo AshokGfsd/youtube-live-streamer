@@ -9,6 +9,8 @@
     "dev:api": "npm run dev --workspace @streamforge/api",
     "build": "npm run build --workspace @streamforge/web",
     "build:android": "node scripts/build-android-kit.mjs",
+    "prototype:reels:demo": "node scripts/instagram-reels-prototype.mjs --demo",
+    "prototype:reels:instagram": "node scripts/instagram-reels-prototype.mjs --instagram",
     "test": "npm run test --workspace @streamforge/api"
   }
 }
