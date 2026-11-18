@@ -11,6 +11,7 @@ import helmet from 'helmet';
 import multer from 'multer';
 import { StreamManager } from './stream-manager.js';
 import { assertValidConfiguration, safeEquals, validVideoName } from './validation.js';
+import { YouTubeAutomation, YouTubeApiError } from './youtube-automation.js';
 
 const execFileAsync = promisify(execFile);
 const env = process.env;
@@ -28,6 +29,15 @@ const manager = new StreamManager({
   },
 });
 await manager.initialize();
+// OAuth lives only on the loopback Android server. Cloud mode retains owner auth.
+const youtube = localOnly ? new YouTubeAutomation({
+  dataDir,
+  streamKey: env.YOUTUBE_STREAM_KEY,
+  clientId: env.GOOGLE_CLIENT_ID,
+  clientSecret: env.GOOGLE_CLIENT_SECRET,
+  port: Number(env.PORT || 4000),
+}) : null;
+if (youtube) await youtube.initialize();
 
 const app = express();
 app.disable('x-powered-by');
@@ -80,6 +90,61 @@ app.use('/api', (req, res, next) => {
   }
   next();
 });
+
+if (youtube) {
+  const imageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 6 * 1024 * 1024, files: 1, fields: 10, fieldSize: 6000 },
+    fileFilter: (_req, file, callback) => {
+      if (!['image/png', 'image/jpeg'].includes(file.mimetype)) {
+        return callback(new YouTubeApiError('Only JPG and PNG images are supported'));
+      }
+      callback(null, true);
+    },
+  });
+
+  app.get('/api/youtube/status', (_req, res) => res.json(youtube.status()));
+
+  app.get('/api/youtube/oauth/start', (_req, res, next) => {
+    try {
+      res.set('Cache-Control', 'no-store');
+      res.redirect(youtube.authorize());
+    } catch (error) { next(error); }
+  });
+
+  app.get('/api/youtube/oauth/callback', async (req, res) => {
+    if (req.query.error) return res.redirect('/?youtube=cancelled');
+    try {
+      await youtube.exchangeCode(req.query.code, req.query.state);
+      res.redirect('/?youtube=connected');
+    } catch (error) {
+      console.error('Google OAuth connection failed:', error instanceof Error ? error.message : 'Unknown error');
+      res.redirect('/?youtube=failed');
+    }
+  });
+
+  app.post('/api/youtube/disconnect', async (_req, res, next) => {
+    try { await youtube.disconnect(); res.json(youtube.status()); }
+    catch (error) { next(error); }
+  });
+
+  app.post('/api/youtube/broadcasts/start', imageUpload.single('thumbnail'), async (req, res, next) => {
+    try {
+      const current = manager.getStatus();
+      if (current.desiredRunning || manager.process) throw new YouTubeApiError('Stop the current stream before creating another broadcast', 409);
+      if (!current.video) throw new YouTubeApiError('Upload your video before creating a live broadcast');
+      const broadcast = await youtube.createBroadcast(req.body, req.file);
+      const stream = await manager.start(req.body.loop !== 'false');
+      res.status(201).json({ broadcast, stream });
+    } catch (error) { next(error); }
+  });
+
+  app.post('/api/youtube/channel', imageUpload.single('banner'), async (req, res, next) => {
+    try {
+      res.json(await youtube.updateChannel({ description: req.body.description, banner: req.file }));
+    } catch (error) { next(error); }
+  });
+}
 
 const uploader = multer({
   storage: multer.diskStorage({
@@ -162,14 +227,15 @@ if (env.WEB_STATIC_DIR) {
   app.use(express.static(staticDir, { extensions: ['html'] }));
 }
 
-app.use((error, _req, res, _next) => {
+app.use((error, req, res, _next) => {
   const uploadError = error instanceof multer.MulterError;
-  const expected = uploadError || /video|upload|stream|ffmpeg|file|origin|format/i.test(error.message || '');
+  const youtubeError = error instanceof YouTubeApiError;
+  const expected = uploadError || youtubeError || /video|upload|stream|ffmpeg|file|origin|format/i.test(error.message || '');
   if (!expected) console.error('API error:', error);
   const message = uploadError && error.code === 'LIMIT_FILE_SIZE'
-    ? 'Video exceeds the configured upload limit'
+    ? req.path.startsWith('/api/youtube') ? 'Image exceeds the 6 MB upload limit' : 'Video exceeds the configured upload limit'
     : expected ? error.message : 'Unexpected server error';
-  const status = error.message === 'Origin not allowed' ? 403
+  const status = youtubeError ? error.status : error.message === 'Origin not allowed' ? 403
     : uploadError || expected ? 400 : 500;
   res.status(status).json({ error: message });
 });

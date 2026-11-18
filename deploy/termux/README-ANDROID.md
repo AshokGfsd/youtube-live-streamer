@@ -28,6 +28,42 @@ It preserves `.env` and `data/` in `~/StreamForge-Android`. Stop an active broad
 
 The ZIP method below is an alternative if you prefer not to use Git.
 
+## Optional: automate YouTube titles, thumbnails and channel branding
+
+StreamForge can create a YouTube broadcast, add its title/description/thumbnail,
+set privacy, bind it to your **existing reusable stream key**, and start FFmpeg.
+It can also update your channel description and banner. The first-time setup
+needs Google OAuth because the stream key alone cannot edit channel settings.
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and create/select a project. Enable **YouTube Data API v3**.
+2. Configure the **Google Auth Platform / OAuth consent screen**. For personal testing, use the testing audience and add your own YouTube Google account as a **test user**.
+3. Go to **Clients → Create client → Web application** and add this exact **Authorized redirect URI**:
+
+   `http://127.0.0.1:4000/api/youtube/oauth/callback`
+
+4. In Termux, run `nano ~/StreamForge-Android/.env` and add the two values shown by Google Cloud:
+
+   ```dotenv
+   GOOGLE_CLIENT_ID=your-oauth-client-id.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=your-oauth-client-secret
+   ```
+
+   Keep your current `YOUTUBE_STREAM_KEY` in the same `.env`. **Do not send your stream key or OAuth secret in chat or commit either to GitHub.**
+
+5. Restart the app:
+
+   ```bash
+   cd ~/youtube-live-streamer
+   bash start-android.sh
+   ```
+
+6. Open `http://127.0.0.1:4000`, scroll to **YouTube Live Automation**, and press **Connect Google**. Approve access for your channel.
+7. Upload a video; fill in the **Live title, description, privacy and optional thumbnail**; choose **Create & Start YouTube Live**. Confirm the broadcast in [YouTube Studio](https://studio.youtube.com/).
+
+**Important limitations:** This release expects the stream key in `.env` to be a *reusable YouTube live stream* visible through the YouTube API. If StreamForge cannot find it, use a custom reusable key from YouTube Studio and update `.env`. The YouTube event is created on demand (no unattended scheduling yet). A supported JPG/PNG thumbnail is optional and capped at 6 MB here. For channel banners, use a 16:9 image at least 2048×1152 and at most 6 MB. Channel name/handle are not editable through this API.
+
+OAuth refresh tokens are saved only in the private Termux `data/youtube-oauth.json` file (owner-only permissions); they are never exposed in the dashboard or committed. **Do not expose the phone's port 4000 through any public tunnel while password-free mode is enabled.** Google may require you to reauthorize periodically while your OAuth app is in Testing mode.
+
 ## Before starting
 
 - Install Termux from [F-Droid](https://f-droid.org/en/packages/com.termux/), or from the official Termux GitHub project. Avoid mixing Termux and add-ons from different distributors.

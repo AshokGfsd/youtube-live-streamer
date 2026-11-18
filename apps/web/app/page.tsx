@@ -6,6 +6,7 @@ import {
   ExternalLink, FileVideo2, Film, HardDrive, KeyRound, Link2, LoaderCircle,
   LogOut, Menu, MonitorPlay, Play, Radio, RefreshCcw, RotateCcw, Settings2,
   ShieldCheck, Signal, Square, TerminalSquare, UploadCloud, Wifi, X, Youtube,
+  ImagePlus, CalendarClock, Sparkles, Globe2, LockKeyhole, UserRoundCheck,
 } from 'lucide-react';
 
 type StreamLog = { at: string; message: string };
@@ -19,6 +20,14 @@ type StreamStatus = {
   video: VideoInfo | null;
   lastError: string | null;
   logs: StreamLog[];
+};
+type YouTubeAccount = {
+  configured: boolean;
+  connected: boolean;
+  channel: string | null;
+  channelId: string | null;
+  description: string;
+  lastBroadcast: { id: string; title: string; url: string; thumbnailSet: boolean } | null;
 };
 
 const DEFAULT_API = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
@@ -75,6 +84,15 @@ export default function Home() {
   const [showSetup, setShowSetup] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [mobileNav, setMobileNav] = useState(false);
+  const [youtubeAccount, setYouTubeAccount] = useState<YouTubeAccount | null>(null);
+  const [automationTab, setAutomationTab] = useState<'live' | 'channel'>('live');
+  const [liveTitle, setLiveTitle] = useState('');
+  const [liveDescription, setLiveDescription] = useState('');
+  const [livePrivacy, setLivePrivacy] = useState<'private' | 'unlisted' | 'public'>('private');
+  const [thumbnail, setThumbnail] = useState<File | null>(null);
+  const [channelDescription, setChannelDescription] = useState('');
+  const [channelBanner, setChannelBanner] = useState<File | null>(null);
+  const [automationBusy, setAutomationBusy] = useState<'live' | 'channel' | 'disconnect' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchStatus = useCallback(async (currentUrl: string, currentToken: string) => {
@@ -142,6 +160,30 @@ export default function Home() {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!localOnly || !connected) return;
+    let cancelled = false;
+    const result = new URLSearchParams(window.location.search).get('youtube');
+    if (result) {
+      if (result === 'connected') setNotice('Your YouTube channel is connected. You can now create a broadcast.');
+      else if (result === 'failed') setError('Google connection failed. Check your OAuth setup and try again.');
+      else if (result === 'cancelled') setNotice('Google sign-in was cancelled.');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    fetch(apiUrl + '/api/youtube/status', { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await readError(response));
+        return (await response.json()) as YouTubeAccount;
+      })
+      .then((account) => {
+        if (cancelled) return;
+        setYouTubeAccount(account);
+        setChannelDescription(account.description || '');
+      })
+      .catch(() => { if (!cancelled) setError('Could not load your YouTube automation settings.'); });
+    return () => { cancelled = true; };
+  }, [localOnly, connected, apiUrl]);
 
   async function connect() {
     setError('');
@@ -232,6 +274,7 @@ export default function Home() {
       });
       setStatus(result);
       setSelected(null);
+      setLiveTitle((previous) => previous || result.video?.name.replace(/\.[^.]+$/, '') || '');
       setNotice('Video uploaded and validated. You can start streaming now.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Upload failed.');
@@ -261,6 +304,60 @@ export default function Home() {
     } finally {
       setBusy(null);
     }
+  }
+
+  async function createYouTubeLive() {
+    if (!youtubeAccount?.connected || !status?.video || isRunning) return;
+    setAutomationBusy('live');
+    setError('');
+    setNotice('');
+    const form = new FormData();
+    form.set('title', liveTitle);
+    form.set('description', liveDescription);
+    form.set('privacy', livePrivacy);
+    form.set('loop', String(repeat));
+    if (thumbnail) form.set('thumbnail', thumbnail);
+    try {
+      const response = await fetch(apiUrl + '/api/youtube/broadcasts/start', { method: 'POST', body: form });
+      if (!response.ok) throw new Error(await readError(response));
+      const result = await response.json();
+      setStatus(result.stream);
+      setYouTubeAccount((previous) => previous ? { ...previous, lastBroadcast: result.broadcast } : previous);
+      setNotice('YouTube broadcast created and FFmpeg started. Check the YouTube Live Control Room to confirm it is live.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not create the YouTube broadcast.');
+    } finally { setAutomationBusy(null); }
+  }
+
+  async function saveChannelBranding() {
+    if (!youtubeAccount?.connected) return;
+    setAutomationBusy('channel');
+    setError('');
+    setNotice('');
+    const form = new FormData();
+    form.set('description', channelDescription);
+    if (channelBanner) form.set('banner', channelBanner);
+    try {
+      const response = await fetch(apiUrl + '/api/youtube/channel', { method: 'POST', body: form });
+      if (!response.ok) throw new Error(await readError(response));
+      setYouTubeAccount((await response.json()) as YouTubeAccount);
+      setChannelBanner(null);
+      setNotice('YouTube channel branding updated successfully.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not update channel settings.');
+    } finally { setAutomationBusy(null); }
+  }
+
+  async function disconnectYouTube() {
+    setAutomationBusy('disconnect');
+    try {
+      const response = await fetch(apiUrl + '/api/youtube/disconnect', { method: 'POST' });
+      if (!response.ok) throw new Error(await readError(response));
+      setYouTubeAccount((await response.json()) as YouTubeAccount);
+      setNotice('YouTube authorization removed from this phone. Your stream key is unchanged.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not disconnect YouTube.');
+    } finally { setAutomationBusy(null); }
   }
 
   const online = connected && status !== null;
@@ -358,6 +455,41 @@ export default function Home() {
               <div className="broadcast-footnote"><ShieldCheck size={15}/> {localOnly ? 'Stream continues in Termux after closing Chrome; keep the phone on.' : 'Stream runs on the VM, even after you close the browser.'}</div>
             </section>
           </div>
+
+          {localOnly && <section className="panel automation-panel" id="youtube-automation">
+            <div className="panel-heading"><div><span className="step-label">STEP 03 · OPTIONAL AUTOMATION</span><h2><Sparkles size={21} className="automation-heading-icon"/> YouTube Live Automation</h2><p>Create a YouTube event, upload its thumbnail, and start the same FFmpeg stream in one step.</p></div><span className="automation-new-tag">NEW</span></div>
+            <div className="automation-account">
+              <div className="automation-account-icon"><Youtube size={22}/></div>
+              <div><b>{youtubeAccount?.connected ? youtubeAccount.channel : 'Connect your YouTube channel'}</b><span>{youtubeAccount?.connected ? 'Google authorization active on this phone' : youtubeAccount?.configured ? 'Authorize your Google account to manage live events' : 'One-time Google Cloud OAuth setup required'}</span></div>
+              {youtubeAccount?.connected ? <span className="automation-connected"><Check size={13}/> Connected</span> : youtubeAccount?.configured ? <button className="primary-button automation-connect" onClick={() => window.location.assign(apiUrl + '/api/youtube/oauth/start')}><Link2 size={15}/> Connect Google</button> : <span className="automation-setup-tag">SETUP</span>}
+            </div>
+
+            {!youtubeAccount?.configured && <div className="automation-setup-hint"><CircleHelp size={17}/><span>In <code>~/StreamForge-Android/.env</code>, add <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>, then restart Termux. Use a Google Cloud OAuth <b>Web application</b> client with redirect URL <code>http://127.0.0.1:4000/api/youtube/oauth/callback</code>.</span></div>}
+
+            {youtubeAccount?.connected && <>
+              <div className="automation-tabs" role="tablist" aria-label="YouTube automation settings">
+                <button role="tab" aria-selected={automationTab === 'live'} className={automationTab === 'live' ? 'selected' : ''} onClick={() => setAutomationTab('live')}><Radio size={15}/> Create Live</button>
+                <button role="tab" aria-selected={automationTab === 'channel'} className={automationTab === 'channel' ? 'selected' : ''} onClick={() => setAutomationTab('channel')}><Settings2 size={15}/> Channel Branding</button>
+              </div>
+
+              {automationTab === 'live' ? <div className="automation-form">
+                <div className="automation-field"><label htmlFor="youtube-live-title">Live title <span>1–100 characters</span></label><input id="youtube-live-title" maxLength={100} value={liveTitle} onChange={(event) => setLiveTitle(event.target.value)} placeholder="My 24/7 YouTube Live"/></div>
+                <div className="automation-field"><label htmlFor="youtube-live-description">Description <span>Optional</span></label><textarea id="youtube-live-description" maxLength={5000} rows={3} value={liveDescription} onChange={(event) => setLiveDescription(event.target.value)} placeholder="Describe your live event..."/></div>
+                <div className="automation-field"><label htmlFor="youtube-live-privacy">Visibility</label><select id="youtube-live-privacy" value={livePrivacy} onChange={(event) => setLivePrivacy(event.target.value as 'private' | 'unlisted' | 'public')}><option value="private">Private (recommended for testing)</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></div>
+                <div className="automation-field"><label htmlFor="youtube-live-thumbnail">Live thumbnail <span>JPG or PNG, up to 6 MB</span></label><label className="automation-file" htmlFor="youtube-live-thumbnail"><ImagePlus size={17}/>{thumbnail ? thumbnail.name : 'Choose thumbnail image'}</label><input id="youtube-live-thumbnail" type="file" accept="image/jpeg,image/png" className="automation-file-input" onChange={(event) => setThumbnail(event.target.files?.[0] || null)}/></div>
+                <div className="automation-warning"><CalendarClock size={17}/><span>This creates a new event with Auto-start enabled, links your existing reusable YouTube stream key, and starts the uploaded video. Confirm the actual live status in YouTube Studio.</span></div>
+                <button className="go-live-button" onClick={createYouTubeLive} disabled={!online || !status?.video || !status?.hasStreamKey || isRunning || !!automationBusy || !liveTitle.trim()}>{automationBusy === 'live' ? <LoaderCircle size={18} className="spin"/> : <Play size={18} fill="currentColor"/>} Create &amp; Start YouTube Live <ArrowUpRight size={16}/></button>
+                {youtubeAccount.lastBroadcast && <a className="automation-live-link" href={youtubeAccount.lastBroadcast.url} target="_blank" rel="noopener noreferrer"><Youtube size={17}/> Open your last broadcast: {youtubeAccount.lastBroadcast.title} <ExternalLink size={14}/></a>}
+              </div> : <div className="automation-form">
+                <div className="automation-field"><label htmlFor="youtube-channel-description">Channel description <span>Up to 1,000 characters</span></label><textarea id="youtube-channel-description" maxLength={1000} rows={4} value={channelDescription} onChange={(event) => setChannelDescription(event.target.value)} placeholder="Tell viewers about your channel..."/></div>
+                <div className="automation-field"><label htmlFor="youtube-channel-banner">Channel banner <span>JPG or PNG · 2560×1440 recommended · 6 MB max</span></label><label className="automation-file" htmlFor="youtube-channel-banner"><ImagePlus size={17}/>{channelBanner ? channelBanner.name : 'Choose channel banner (optional)'}</label><input id="youtube-channel-banner" type="file" accept="image/jpeg,image/png" className="automation-file-input" onChange={(event) => setChannelBanner(event.target.files?.[0] || null)}/></div>
+                <div className="automation-warning"><Globe2 size={17}/><span>Channel name and handle must still be changed in YouTube Studio. These actions update only your channel description and optional banner.</span></div>
+                <button className="primary-button automation-save" onClick={saveChannelBranding} disabled={!!automationBusy}>{automationBusy === 'channel' ? <LoaderCircle size={18} className="spin"/> : <Check size={17}/>} Save Channel Branding</button>
+              </div>}
+              <button className="automation-disconnect" onClick={disconnectYouTube} disabled={!!automationBusy}><LockKeyhole size={14}/> Disconnect Google account from this phone</button>
+            </>}
+            {youtubeAccount?.configured && !youtubeAccount.connected && <div className="automation-welcome"><UserRoundCheck size={22}/><span>Connect Google once to securely enable title, description, thumbnail, and channel customization controls. Your OAuth refresh token is stored only on your phone, never in GitHub or the browser.</span></div>}
+          </section>}
 
           <div className="bottom-grid">
             <section className="panel activity-panel"><div className="bottom-heading"><div><span className="step-label">ACTIVITY</span><h2>Stream activity</h2></div><div className="live-log-label"><TerminalSquare size={15}/> ENCODER LOG</div></div>

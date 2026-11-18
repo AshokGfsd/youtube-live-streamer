@@ -32,6 +32,8 @@ The Android setup serves the dashboard at `http://127.0.0.1:4000` on the same ph
 
 **Android personal mode:** The prebuilt Termux bundle starts with `LOCAL_ONLY_MODE=true`, serves the app only on `127.0.0.1`, and automatically opens the dashboard without a token/login popup. Never expose this phone-only endpoint to the public internet or a network tunnel. Cloud deployments still require `DASHBOARD_TOKEN` and their normal CSP.
 
+**New YouTube automation (Android):** Optionally connect your channel through Google OAuth to create new live events with title, description, privacy and thumbnail, then send your uploaded video with the same reusable stream key. Channel description and banner updates are also available. This requires a Google Cloud Web application OAuth client and API authorization; see [Android YouTube OAuth setup](deploy/termux/README-ANDROID.md#optional-automate-youtube-titles-thumbnails-and-channel-branding). The original manual stream-key mode still works without OAuth.
+
 Upload one video from a Next.js dashboard, then use a self-hosted Node.js + FFmpeg encoder to send it to YouTube Live. The actual stream runs on an Oracle Cloud VM and **continues when your browser and PC are off**.
 
 > This is a personal, single-owner streaming tool. It uses a YouTube Studio stream key, not Google OAuth. One-time setup in YouTube Studio is required. Clicking **Start streaming** starts RTMPS ingestion; the YouTube broadcast goes live automatically only if **Auto-start** is enabled in YouTube Studio.

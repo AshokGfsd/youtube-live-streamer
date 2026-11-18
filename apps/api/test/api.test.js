@@ -116,6 +116,17 @@ test('Android local-only server opens without a token and blocks nonlocal origin
     assert.equal(dashboard.headers.get('content-security-policy'), null, 'static Next.js hydration must not be blocked');
     const status = await fetch(address + '/api/status');
     assert.equal(status.status, 200, 'local dashboard must work without a token');
+    const youtube = await (await fetch(address + '/api/youtube/status')).json();
+    assert.equal(youtube.configured, false);
+    assert.equal(youtube.connected, false);
+    const oauthNotReady = await fetch(address + '/api/youtube/oauth/start', { redirect: 'manual' });
+    assert.equal(oauthNotReady.status, 400, 'YouTube automation needs Google OAuth credentials');
+    const createWithoutVideo = new FormData();
+    createWithoutVideo.set('title', 'Test live');
+    createWithoutVideo.set('privacy', 'private');
+    const noVideo = await fetch(address + '/api/youtube/broadcasts/start', { method: 'POST', body: createWithoutVideo });
+    assert.equal(noVideo.status, 400);
+    assert.match((await noVideo.json()).error, /Upload your video/);
     const allowed = await fetch(address + '/api/status', { headers: { Origin: address } });
     assert.equal(allowed.status, 200);
     const foreign = await fetch(address + '/api/status', { headers: { Origin: 'https://evil.example' } });
