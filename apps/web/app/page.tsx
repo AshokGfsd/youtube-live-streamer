@@ -79,6 +79,7 @@ export default function Home() {
     const savedUrl = localStorage.getItem('streamforge-api-url');
     const savedToken = sessionStorage.getItem('streamforge-token');
     if (savedUrl) setApiUrl(savedUrl);
+    else if (!process.env.NEXT_PUBLIC_API_BASE_URL) setApiUrl(window.location.origin);
     if (savedToken) setToken(savedToken);
   }, []);
 

@@ -1,5 +1,11 @@
 # StreamForge — Your YouTube cloud livestream studio
 
+## Android phone (no credit card / cloud VM required)
+
+You can also run the **Node.js + FFmpeg backend on an Android phone in Termux**, with the Next.js dashboard precompiled on a computer or in GitHub Actions. See [Android instructions](deploy/termux/README-ANDROID.md). Run `npm run build:android` on a Node-capable desktop/CI machine to create an Android-ready folder under `dist/android/StreamForge-Android`. The user does not have to build Next.js on Android.
+
+The Android setup serves the dashboard at `http://127.0.0.1:4000` on the same phone, so no public server or HTTPS tunnel is required. **The phone stays on** and Android may stop background tasks; this is not unattended cloud hosting with an uptime guarantee.
+
 Upload one video from a Next.js dashboard, then use a self-hosted Node.js + FFmpeg encoder to send it to YouTube Live. The actual stream runs on an Oracle Cloud VM and **continues when your browser and PC are off**.
 
 > This is a personal, single-owner streaming tool. It uses a YouTube Studio stream key, not Google OAuth. One-time setup in YouTube Studio is required. Clicking **Start streaming** starts RTMPS ingestion; the YouTube broadcast goes live automatically only if **Auto-start** is enabled in YouTube Studio.

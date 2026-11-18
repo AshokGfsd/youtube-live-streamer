@@ -11,13 +11,28 @@ function initialState() {
 }
 
 export class StreamManager {
-  constructor({ dataDir, streamKey, rtmpsUrl, ffmpegBin = 'ffmpeg', spawnProcess = spawn }) {
+  constructor({ dataDir, streamKey, rtmpsUrl, videoSettings = {}, ffmpegBin = 'ffmpeg', spawnProcess = spawn }) {
     this.dataDir = dataDir;
     this.stateFile = path.join(dataDir, 'state.json');
     this.streamKey = streamKey || '';
     this.rtmpsUrl = rtmpsUrl.replace(/\/+$/, '');
     this.ffmpegBin = ffmpegBin;
     this.spawnProcess = spawnProcess;
+    this.videoSettings = {
+      width: videoSettings.width ?? 1280,
+      height: videoSettings.height ?? 720,
+      fps: videoSettings.fps ?? 30,
+      bitrateKbps: videoSettings.bitrateKbps ?? 2500,
+      preset: videoSettings.preset ?? 'ultrafast',
+    };
+    const settings = this.videoSettings;
+    if (!Number.isInteger(settings.width) || settings.width < 320 || settings.width > 1920 || settings.width % 2 !== 0 ||
+      !Number.isInteger(settings.height) || settings.height < 180 || settings.height > 1080 || settings.height % 2 !== 0 ||
+      !Number.isInteger(settings.fps) || settings.fps < 15 || settings.fps > 60 ||
+      !Number.isInteger(settings.bitrateKbps) || settings.bitrateKbps < 300 || settings.bitrateKbps > 8000 ||
+      !['ultrafast', 'superfast', 'veryfast', 'faster', 'fast'].includes(settings.preset)) {
+      throw new Error('Invalid video encoding settings');
+    }
     this.state = initialState();
     this.process = null;
     this.timer = null;
@@ -93,15 +108,16 @@ export class StreamManager {
 
   buildArguments() {
     const video = this.state.video;
+    const { width, height, fps, bitrateKbps, preset } = this.videoSettings;
     const args = ['-hide_banner', '-nostdin', '-loglevel', 'warning', '-stats'];
     if (this.state.loop) args.push('-stream_loop', '-1');
     args.push('-re', '-i', this.videoPath());
     if (!video.hasAudio) args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
     args.push('-map', '0:v:0', '-map', video.hasAudio ? '0:a:0' : '1:a:0');
     args.push(
-      '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p',
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-      '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k', '-g', '60',
+      '-vf', 'scale=' + width + ':' + height + ':force_original_aspect_ratio=decrease:force_divisible_by=2,pad=' + width + ':' + height + ':(ow-iw)/2:(oh-ih)/2:color=black,fps=' + fps + ',format=yuv420p',
+      '-c:v', 'libx264', '-preset', preset, '-tune', 'zerolatency',
+      '-b:v', bitrateKbps + 'k', '-maxrate', bitrateKbps + 'k', '-bufsize', (bitrateKbps * 2) + 'k', '-g', String(fps * 2),
       '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
       '-f', 'flv'
     );

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
@@ -15,21 +16,34 @@ const execFileAsync = promisify(execFile);
 const env = process.env;
 const { base: rtmpsUrl, maxBytes } = assertValidConfiguration(env);
 const dataDir = path.resolve(env.DATA_DIR || './data');
-const manager = new StreamManager({ dataDir, streamKey: env.YOUTUBE_STREAM_KEY, rtmpsUrl });
+const manager = new StreamManager({
+  dataDir, streamKey: env.YOUTUBE_STREAM_KEY, rtmpsUrl,
+  videoSettings: {
+    width: Number(env.STREAM_WIDTH || 1280),
+    height: Number(env.STREAM_HEIGHT || 720),
+    fps: Number(env.STREAM_FPS || 30),
+    bitrateKbps: Number(env.STREAM_BITRATE_KBPS || 2500),
+    preset: env.STREAM_PRESET || 'ultrafast',
+  },
+});
 await manager.initialize();
 
 const app = express();
 app.disable('x-powered-by');
 app.use(helmet());
-app.use(cors({
-  origin(origin, callback) {
+app.use(cors((req, callback) => callback(null, {
+  origin(origin, done) {
     const allowed = (env.FRONTEND_ORIGIN || 'http://localhost:3000').split(',').map((value) => value.trim());
-    if (!origin || allowed.includes(origin)) return callback(null, true);
-    callback(new Error('Origin not allowed'));
+    let sameOrigin = false;
+    if (origin && env.WEB_STATIC_DIR) {
+      try { sameOrigin = new URL(origin).host === req.get('host'); } catch { /* reject */ }
+    }
+    if (!origin || allowed.includes(origin) || sameOrigin) return done(null, true);
+    done(new Error('Origin not allowed'));
   },
   allowedHeaders: ['Authorization', 'Content-Type'],
   methods: ['GET', 'POST', 'OPTIONS'],
-}));
+})));
 app.use(express.json({ limit: '32kb' }));
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'streamforge-api' }));
@@ -114,6 +128,15 @@ app.post('/api/stop', async (_req, res, next) => {
   }
 });
 
+// Optional prebuilt frontend for Termux: one local HTTP origin, no Next.js build on Android.
+if (env.WEB_STATIC_DIR) {
+  const staticDir = path.resolve(env.WEB_STATIC_DIR);
+  if (!existsSync(path.join(staticDir, 'index.html'))) {
+    throw new Error('WEB_STATIC_DIR must contain a prebuilt index.html');
+  }
+  app.use(express.static(staticDir, { extensions: ['html'] }));
+}
+
 app.use((error, _req, res, _next) => {
   const uploadError = error instanceof multer.MulterError;
   const expected = uploadError || /video|upload|stream|ffmpeg|file|origin|format/i.test(error.message || '');
@@ -127,7 +150,8 @@ app.use((error, _req, res, _next) => {
 });
 
 const port = Number(env.PORT || 4000);
-const server = app.listen(port, '0.0.0.0', () => console.log('StreamForge API listening on port ' + port));
+const host = env.LISTEN_HOST || '0.0.0.0';
+const server = app.listen(port, host, () => console.log('StreamForge API listening on ' + host + ':' + port));
 function shutdown() {
   manager.shutdown();
   server.close(() => process.exit(0));

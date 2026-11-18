@@ -11,11 +11,14 @@ const execFileAsync = promisify(execFile);
 
 test('API health works but control endpoints require the owner token', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'streamforge-api-test-'));
+  const staticDir = path.join(dir, 'public');
+  await fs.mkdir(staticDir);
+  await fs.writeFile(path.join(staticDir, 'index.html'), '<!doctype html><title>StreamForge Android</title>');
   const token = 'integration-test-access-token-very-long';
   const port = 42000 + Math.floor(Math.random() * 12000);
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: path.resolve(import.meta.dirname, '..'),
-    env: { ...process.env, PORT: String(port), DASHBOARD_TOKEN: token, YOUTUBE_STREAM_KEY: '', DATA_DIR: dir, FRONTEND_ORIGIN: 'http://localhost:3000' },
+    env: { ...process.env, PORT: String(port), DASHBOARD_TOKEN: token, YOUTUBE_STREAM_KEY: '', DATA_DIR: dir, WEB_STATIC_DIR: staticDir, LISTEN_HOST: '127.0.0.1', FRONTEND_ORIGIN: 'http://localhost:3000' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const address = 'http://127.0.0.1:' + port;
@@ -30,10 +33,16 @@ test('API health works but control endpoints require the owner token', async () 
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     assert.equal(started, true, 'server should become healthy');
+    const dashboard = await fetch(address + '/');
+    assert.equal(dashboard.status, 200);
+    assert.match(await dashboard.text(), /StreamForge Android/);
     const anonymous = await fetch(address + '/api/status');
     assert.equal(anonymous.status, 401);
     const authenticated = await fetch(address + '/api/status', { headers: { Authorization: 'Bearer ' + token } });
     assert.equal(authenticated.status, 200);
+    const sameOrigin = await fetch(address + '/api/status', { headers: { Authorization: 'Bearer ' + token, Origin: address } });
+    assert.equal(sameOrigin.status, 200);
+    assert.equal(sameOrigin.headers.get('access-control-allow-origin'), address);
     const status = await authenticated.json();
     assert.equal(status.hasStreamKey, false);
     assert.equal(status.video, null);
