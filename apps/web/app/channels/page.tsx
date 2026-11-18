@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   Activity, ArrowLeft, ArrowRight, BadgeCheck, Check, CheckCircle2, ChevronRight, CircleAlert,
   CircleHelp, Clapperboard, CloudUpload, Database, ExternalLink, Eye, FileVideo2,
-  Globe2, HardDrive, KeyRound, Layers3, LoaderCircle, LockKeyhole, MonitorPlay,
+  Globe2, HardDrive, Instagram, KeyRound, Layers3, LoaderCircle, LockKeyhole, MonitorPlay,
   MoreHorizontal, Play, Plus, Radio, RefreshCcw, Save, Search, Settings2,
   ShieldCheck, Signal, Square, Sparkles, Tv2, UploadCloud, WandSparkles, X, Youtube,
 } from 'lucide-react';
@@ -218,6 +218,7 @@ export default function ChannelsPage() {
         <div className="ch-nav-label">WORKSPACE</div>
         <Link href="/" className="ch-nav-item"><MonitorPlay size={18}/> Live studio</Link>
         <div className="ch-nav-item ch-nav-active"><Layers3 size={18}/> My channels <span className="ch-nav-count">{channels.length}</span></div>
+        <Link href="/instagram-live" className="ch-nav-item"><Instagram size={18}/> Reels Live studio <ArrowRight size={14} className="ch-end"/></Link>
         <div className="ch-nav-label ch-nav-secondary">QUICK ACCESS</div>
         <a href="https://studio.youtube.com/" target="_blank" rel="noopener noreferrer" className="ch-nav-item"><Youtube size={18}/> YouTube Studio <ExternalLink size={14} className="ch-end"/></a>
         <div className="ch-sidebar-bottom"><div className="ch-security"><ShieldCheck size={19}/><div><b>Private by design</b><p>Stream keys are encrypted in your database and never shown in this dashboard.</p></div></div><div className="ch-profile"><div>SF</div><span><b>My workspace</b><small>Multichannel studio</small></span></div></div>

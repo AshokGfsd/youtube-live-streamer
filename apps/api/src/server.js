@@ -14,6 +14,7 @@ import { assertValidConfiguration, safeEquals, validVideoName } from './validati
 import { YouTubeAutomation, YouTubeApiError } from './youtube-automation.js';
 import { createChannelStore, ChannelError } from './channel-store.js';
 import { ChannelStudio, registerChannelRoutes } from './channel-studio.js';
+import { InstagramLiveManager, registerInstagramLiveRoutes } from './instagram-live.js';
 
 const execFileAsync = promisify(execFile);
 const env = process.env;
@@ -43,6 +44,11 @@ if (youtube) await youtube.initialize();
 const channelStore = await createChannelStore(env);
 const channelStudio = channelStore ? new ChannelStudio({ store: channelStore, dataDir, env, legacyManager: manager }) : null;
 if (channelStudio) await channelStudio.restore();
+const instagramLive = channelStudio && localOnly ? new InstagramLiveManager({ store: channelStore, studio: channelStudio, env }) : null;
+if (instagramLive) {
+  await instagramLive.initialize();
+  channelStudio.instagramManager = instagramLive;
+}
 
 const app = express();
 app.disable('x-powered-by');
@@ -81,7 +87,7 @@ app.use(cors((req, callback) => callback(null, {
     done(new Error('Origin not allowed'));
   },
   allowedHeaders: ['Authorization', 'Content-Type'],
-  methods: ['GET', 'POST', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'],
 })));
 app.use(express.json({ limit: '32kb' }));
 
@@ -158,6 +164,7 @@ if (youtube) {
 }
 
 registerChannelRoutes(app, { store: channelStore, studio: channelStudio, maxBytes });
+registerInstagramLiveRoutes(app, { manager: instagramLive, localOnly });
 
 const uploader = multer({
   storage: multer.diskStorage({
@@ -258,10 +265,13 @@ app.use((error, req, res, _next) => {
 });
 
 const port = Number(env.PORT || 4000);
-const host = env.LISTEN_HOST || '0.0.0.0';
+// Host-header checks are not sufficient protection against LAN clients.
+// Never bind an unauthenticated personal Android dashboard to a public NIC.
+const host = localOnly ? '127.0.0.1' : (env.LISTEN_HOST || '0.0.0.0');
 const server = app.listen(port, host, () => console.log('StreamForge API listening on ' + host + ':' + port));
 function shutdown() {
   manager.shutdown();
+  instagramLive?.shutdown();
   channelStudio?.shutdown();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 4000).unref();

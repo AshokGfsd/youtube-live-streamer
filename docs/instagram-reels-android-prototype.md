@@ -1,10 +1,14 @@
-# Experimental Instagram Reels auto-scroll prototype (Android)
+# Instagram Reels → YouTube Live: Android feature branch
 
-This is **Phase 1 only**. It can test an Instagram Reels tab in Chromium and
-request one next-Reel scroll when the visible HTML5 video finishes. It does
-**not** publish the Instagram feed to YouTube, download Reels, create Instagram
-accounts, or ask for passwords. The working StreamForge My Channels dashboard
-and main branch are unchanged.
+Phase 1 **passed on an actual Termux Android phone**: Chromium at local CDP
+port 9222 was reachable and an original synthetic test feed advanced twice.
+The user has also started the real Instagram watcher. **Phase 2** now adds an
+Android-only dashboard, MySQL-backed settings, automatic scrolling and X11
+screen capture with FFmpeg to YouTube RTMPS. It has been code-tested but a
+**real device video/audio capture + YouTube ingest test is still required.**
+
+The original StreamForge `main` branch is unchanged. This experimental feature
+is isolated on `feature/instagram-auto-scroll-live`.
 
 **Do not rely on this for unattended livestreaming.** Instagram can change
 its web interface, autoplay/loop behavior or login requirements. Android can
@@ -44,7 +48,7 @@ pulseaudio --start --exit-idle-time=-1
 Launch Chromium with a **dedicated local profile** and loopback-only CDP port:
 
 ```sh
-chromium --user-data-dir="$HOME/.streamforge-reels-browser" \
+chromium-browser --user-data-dir="$HOME/.streamforge-reels-browser" \
   --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
   'https://www.instagram.com/reels/' &
 ```
@@ -113,11 +117,71 @@ ffmpeg -hide_banner -f x11grab -framerate 15 -video_size 320x568 \
   -i :1.0 -t 10 -an -c:v libx264 -preset ultrafast -f null -
 ```
 
-This is a **dry run to the null output**, not a YouTube broadcast. Audio is
-not yet included: audio routing and browser codec support must be checked on
-your actual phone. Android's own MediaProjection capture APIs are an
-alternative, but Android 14+ requires user consent for each capture session,
-and playback capture depends on the source app's audio permissions.
+This is a **dry run to the null output**, not a YouTube broadcast. It must pass
+before using the new screen-capture dashboard. Match capture width/height to
+your actual X11 display; values larger than the display will fail.
+
+## 5. Launch the Reels Live studio (new)
+
+**Stop** `node scripts/instagram-reels-prototype.mjs --instagram` with Ctrl+C
+before using the new built-in controller. Running two controllers at once can
+cause double-scrolls. Keep X11, PulseAudio, Chromium and its Instagram tab
+running. You already have these packages on your device.
+
+```sh
+cd ~/streamforge-reels-test
+git switch feature/instagram-auto-scroll-live
+git pull --ff-only origin feature/instagram-auto-scroll-live
+bash start-android.sh
+```
+
+This uses the **same existing** `~/StreamForge-Android/.env`, MySQL data and
+uploaded videos. The script restarts the StreamForge API tmux session, so stop
+any *other* active live before running the updater. It does **not** alter the
+working GitHub `main` branch.
+
+If MySQL is not yet configured, follow `deploy/termux/README-ANDROID.md` to set
+`MYSQL_DATABASE` and `CHANNEL_ENCRYPTION_KEY` first. Then complete the channel
+wizard at `http://127.0.0.1:4000/channels`.
+
+1. Open **http://127.0.0.1:4000/instagram-live** in your Android Chrome.
+2. Select your completed YouTube channel with its saved stream key.
+3. In Termux:X11 Chromium, log in manually, open Instagram Reels and play one.
+   Use fullscreen Chromium so your display doesn't include the browser URL bar.
+4. Press **Check local browser**.
+5. Enter live title, description, privacy and auto-scroll method. Each edit
+   saves automatically to MySQL. For your **first test**, select `Private` and
+   `Silent audio` under Capture settings.
+6. Set capture X/Y and dimensions to the visible X11 browser area (the defaults
+   are **540 × 960**). If your display is smaller, use **320 × 568** or another
+   even-sized rectangle that fits.
+7. If you connected the YouTube account using Google OAuth, check **Create
+   YouTube event automatically**. Otherwise prepare a live event in YouTube
+   Studio using the configured stream key; entering a title in StreamForge
+   alone doesn't create a YouTube event.
+8. Only after confirming you own or are licensed to rebroadcast the feed and
+   audio, check the rights box and press **Start Reels livestream**.
+9. Open **YouTube Studio** to confirm the video preview and that the event is
+   receiving packets. Check the new live diagnostics for FFmpeg errors.
+10. Press **Stop livestream** to stop both FFmpeg and the Reels controller.
+
+You can test the API without starting a stream:
+
+```sh
+curl http://127.0.0.1:4000/health
+curl http://127.0.0.1:4000/api/instagram-live/browser
+curl http://127.0.0.1:4000/api/instagram-live/status
+```
+
+The browser control is only allowed on loopback `127.0.0.1:9222`. The API is
+phone-only. It neither extracts Instagram login secrets nor downloads Reels.
+`PulseAudio monitor` is **experimental**: the phone must have a working
+`parec` capture device receiving the Chromium audio. It is not yet verified on
+your phone. A missing monitor or stopped audio process stops the live rather
+than silently claiming audio is working.
+
+The stream **does not automatically resume after a restart**. Explicitly press
+Start when you're ready and can see the authorized Reels feed.
 
 ## Interpreting the results
 
@@ -127,8 +191,8 @@ and playback capture depends on the source app's audio permissions.
 | Instagram login | Browser plays a Reel without login interruption |
 | Instagram auto-scroll | Next actual Reel starts only after the preceding Reel completes |
 | FFmpeg X11 capture | 10 seconds captured without an input error |
-| Audio | Tested separately; not implemented in this prototype |
-| YouTube Live | **Not integrated in Phase 1** |
+| Audio | Silent stream available; PulseAudio monitor experimental |
+| YouTube Live | Dashboard and FFmpeg RTMPS integrated; confirm on device |
 
 If the Instagram test fails because the page does not expose usable video
 timing or blocks automated controls, stop. Do not attempt CAPTCHA bypasses,

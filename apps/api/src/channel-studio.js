@@ -30,7 +30,8 @@ export class ChannelStudio {
 
   runningCount() {
     return Number(Boolean(this.legacyManager?.getStatus().desiredRunning)) +
-      [...this.managers.values()].filter((manager) => manager.getStatus().desiredRunning).length;
+      [...this.managers.values()].filter((manager) => manager.getStatus().desiredRunning).length +
+      Number(Boolean(this.instagramManager?.process || this.instagramManager?.starting));
   }
 
   async managerFor(id) {

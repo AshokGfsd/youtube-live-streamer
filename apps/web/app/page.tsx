@@ -7,7 +7,7 @@ import {
   LogOut, Menu, MonitorPlay, Play, Radio, RefreshCcw, RotateCcw, Settings2,
   ShieldCheck, Signal, Square, TerminalSquare, UploadCloud, Wifi, X, Youtube,
   ImagePlus, CalendarClock, Sparkles, Globe2, LockKeyhole, UserRoundCheck,
-  Layers3,
+  Layers3, Instagram,
 } from 'lucide-react';
 
 type StreamLog = { at: string; message: string };
@@ -383,6 +383,7 @@ export default function Home() {
         <nav className="sidebar-links" aria-label="Main navigation">
           <div className="nav-link active"><MonitorPlay size={18} /> Live Studio <span className="nav-active-dot" /></div>
           <a className="nav-link" href="/channels"><Layers3 size={18}/> My Channels <ArrowUpRight size={14} className="link-external"/></a>
+          <a className="nav-link" href="/instagram-live"><Instagram size={18}/> Instagram Reels Live <ArrowUpRight size={14} className="link-external"/></a>
           <div className="nav-link disabled" title="Coming soon"><Film size={18} /> Library <span className="soon">SOON</span></div>
           <div className="nav-link disabled" title="Coming soon"><Activity size={18} /> Analytics <span className="soon">SOON</span></div>
         </nav>
@@ -404,7 +405,7 @@ export default function Home() {
         </header>
 
         <div className="content">
-          <div className="welcome"><div><span className="eyebrow"><span className="eyebrow-line" /> YOUR BROADCAST COMMAND CENTER</span><h1>Let&apos;s go <em>live.</em></h1><p>Upload a video, hit start, and let your {localOnly ? 'phone' : 'cloud server'} take it from there.</p><a href="/channels" className="channel-studio-link"><Layers3 size={16}/> Manage multiple channels <ArrowUpRight size={14}/></a></div><div className="welcome-time"><Cloud size={17}/><span>{localOnly ? 'Android-powered streaming' : 'Cloud-powered streaming'}</span></div></div>
+          <div className="welcome"><div><span className="eyebrow"><span className="eyebrow-line" /> YOUR BROADCAST COMMAND CENTER</span><h1>Let&apos;s go <em>live.</em></h1><p>Upload a video, hit start, and let your {localOnly ? 'phone' : 'cloud server'} take it from there.</p><a href="/channels" className="channel-studio-link"><Layers3 size={16}/> Manage multiple channels <ArrowUpRight size={14}/></a> <a href="/instagram-live" className="channel-studio-link"><Instagram size={16}/> Reels Live studio <ArrowUpRight size={14}/></a></div><div className="welcome-time"><Cloud size={17}/><span>{localOnly ? 'Android-powered streaming' : 'Cloud-powered streaming'}</span></div></div>
 
           {(error || notice) && <div role={error ? 'alert' : 'status'} className={'toast-message ' + (error ? 'error-message' : 'success-message')}><span>{error || notice}</span><button aria-label="Dismiss message" onClick={() => { setError(''); setNotice(''); }}><X size={17}/></button></div>}
 

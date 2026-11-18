@@ -1,5 +1,11 @@
 # StreamForge for Android — no card, no VPS
 
+> **Instagram Reels screen-capture preview:** on branch
+> `feature/instagram-auto-scroll-live`, see
+> `docs/instagram-reels-android-prototype.md` in your Git checkout and open
+> `http://127.0.0.1:4000/instagram-live` after installing the branch via
+> `bash start-android.sh`. This is experimental Android/X11 functionality.
+
 This ZIP contains the **prebuilt Next.js dashboard** and the **Node.js + FFmpeg backend**. You don't need Docker, Oracle Cloud or a Next.js compiler on your Android phone.
 
 **Your phone becomes the server.** You can close Chrome and switch apps while streaming, but **the phone must stay switched on, connected to the internet, and allowed to run Termux in the background**. Android can still kill background or CPU-intensive processes. This is not guaranteed 24/7 cloud hosting.
