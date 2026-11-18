@@ -42,6 +42,14 @@ test('each wizard step validates its own data and rejects invalid ingest servers
   assert.equal(validateChannelStep(4, { loop: true }).privacy, 'private');
 });
 
+test('channel listing quotes the MariaDB reserved LOOP alias', async () => {
+  let query = '';
+  const pool = { async execute(sql) { query = sql; return [[{ id: 'test', loop: 1, createdAt: new Date(), updatedAt: new Date() }]]; } };
+  const result = await new ChannelStore(pool, new SecretBox(KEY)).list();
+  assert.match(query, /loop_video AS `loop`/);
+  assert.equal(result[0].loop, true);
+});
+
 test('database write uses whitelisted columns and binds secret values', async () => {
   const calls = [];
   const row = {

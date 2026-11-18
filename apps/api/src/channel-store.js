@@ -101,7 +101,7 @@ export class SecretBox {
 const COLUMNS = `id, display_name AS displayName, handle, youtube_channel_id AS youtubeChannelId,
  channel_url AS channelUrl, youtube_title AS youtubeTitle, description, keywords, category,
  ingest_url AS ingestUrl, default_title AS defaultTitle, default_description AS defaultDescription,
- privacy, loop_video AS loop, wizard_step AS wizardStep, completed_at AS completedAt,
+ privacy, loop_video AS \`loop\`, wizard_step AS wizardStep, completed_at AS completedAt,
  stream_key_secret AS streamKeySecret, oauth_refresh_secret AS oauthRefreshSecret,
  created_at AS createdAt, updated_at AS updatedAt`;
 
