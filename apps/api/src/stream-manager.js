@@ -42,7 +42,7 @@ export class StreamManager {
     this.closing = false;
   }
 
-  async initialize() {
+  async initialize({ resume = true } = {}) {
     await fs.mkdir(path.join(this.dataDir, 'uploads'), { recursive: true });
     try {
       const persisted = JSON.parse(await fs.readFile(this.stateFile, 'utf8'));
@@ -62,12 +62,13 @@ export class StreamManager {
       this.state = initialState();
     }
 
-    if (this.state.desiredRunning && this.streamKey) {
+    if (this.state.desiredRunning && this.streamKey && resume) {
       this.addLog('Resuming the stream after a server restart');
       this.launch();
     } else if (this.state.desiredRunning) {
       this.state.desiredRunning = false;
       await this.save();
+      if (!resume) this.addLog('Saved stream paused to respect the device concurrency limit');
     }
   }
 

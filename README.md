@@ -1,5 +1,32 @@
 # StreamForge — Your YouTube cloud livestream studio
 
+## Multi-channel studio (new)
+
+Visit **`/channels`** to create and manage multiple YouTube channel profiles
+with an individual upload, stream key, live status and YouTube OAuth connection.
+A polished **four-step wizard** saves each completed step immediately into
+MySQL, keeping draft progress when you close or reload the dashboard. YouTube
+stream keys and OAuth refresh tokens are encrypted with AES-256-GCM at rest.
+
+- **Android/Termux:** install the MySQL-compatible `mariadb` package, configure
+  `MYSQL_DATABASE` and `CHANNEL_ENCRYPTION_KEY`, then `git pull` and run
+  `bash start-android.sh`. See the complete [Android database installation and
+  channel wizard guide](deploy/termux/README-ANDROID.md#new-mysql-multi-channel-setup-android--termux).
+- **Self-hosted API:** provide `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`,
+  `MYSQL_PASSWORD`, `MYSQL_DATABASE`, and a **permanent** 64-hex-character
+  `CHANNEL_ENCRYPTION_KEY` (generate with `openssl rand -hex 32`). The backend
+  automatically creates `streamforge_channels` in the existing database.
+- **Concurrency:** `MAX_CONCURRENT_STREAMS` defaults to `1` to protect Android
+  devices from overheating. More channel profiles can be saved than can stream
+  simultaneously; each ready channel has its own video and FFmpeg state.
+- **Backward compatibility:** the original single-channel Live Studio and old
+  stream key in `.env` continue to work. A database is optional until you open
+  multi-channel management.
+
+Never commit your database password, encryption key, OAuth client secret or
+YouTube stream keys. A database backup **without** your original encryption key
+cannot restore the saved secret values.
+
 ## Android phone (no credit card / cloud VM required)
 
 ### Fast setup with Git (recommended for Termux)
@@ -36,7 +63,7 @@ The Android setup serves the dashboard at `http://127.0.0.1:4000` on the same ph
 
 Upload one video from a Next.js dashboard, then use a self-hosted Node.js + FFmpeg encoder to send it to YouTube Live. The actual stream runs on an Oracle Cloud VM and **continues when your browser and PC are off**.
 
-> This is a personal, single-owner streaming tool. It uses a YouTube Studio stream key, not Google OAuth. One-time setup in YouTube Studio is required. Clicking **Start streaming** starts RTMPS ingestion; the YouTube broadcast goes live automatically only if **Auto-start** is enabled in YouTube Studio.
+> This is a personal, single-owner dashboard supporting multiple YouTube channel profiles. Manual stream keys work without OAuth; optional Google OAuth on the Android loopback server can manage broadcasts. Clicking **Start streaming** starts RTMPS ingestion; YouTube only publishes automatically when Auto-start is configured in its Live Control Room.
 
 ## Stack
 
@@ -58,7 +85,7 @@ Upload one video from a Next.js dashboard, then use a self-hosted Node.js + FFmp
 - Live encoder status and redacted log messages (never disclose the stream key to the dashboard).
 - Protect cloud control endpoints with an owner access token; browser uses HTTPS to the VM. Local-only Android mode uses loopback isolation instead of a token.
 
-**What this version does not do:** create YouTube broadcasts automatically, show real viewer metrics, schedule broadcasts, or stream without enabling YouTube Live in Studio. API status **Sending to YouTube** means FFmpeg is running; check YouTube Studio to confirm the actual broadcast is public/live.
+**Limitations:** automated YouTube broadcast creation requires a connected Google account and a reusable YouTube stream key. Real viewer metrics and unattended scheduling are not included. API status **Sending to YouTube** means FFmpeg is running; check YouTube Studio to confirm that the actual broadcast is public/live.
 
 ## 1. Enable YouTube Live and get your stream key
 

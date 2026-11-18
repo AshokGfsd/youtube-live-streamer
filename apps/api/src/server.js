@@ -12,6 +12,8 @@ import multer from 'multer';
 import { StreamManager } from './stream-manager.js';
 import { assertValidConfiguration, safeEquals, validVideoName } from './validation.js';
 import { YouTubeAutomation, YouTubeApiError } from './youtube-automation.js';
+import { createChannelStore, ChannelError } from './channel-store.js';
+import { ChannelStudio, registerChannelRoutes } from './channel-studio.js';
 
 const execFileAsync = promisify(execFile);
 const env = process.env;
@@ -38,6 +40,9 @@ const youtube = localOnly ? new YouTubeAutomation({
   port: Number(env.PORT || 4000),
 }) : null;
 if (youtube) await youtube.initialize();
+const channelStore = await createChannelStore(env);
+const channelStudio = channelStore ? new ChannelStudio({ store: channelStore, dataDir, env, legacyManager: manager }) : null;
+if (channelStudio) await channelStudio.restore();
 
 const app = express();
 app.disable('x-powered-by');
@@ -80,7 +85,8 @@ app.use(cors((req, callback) => callback(null, {
 })));
 app.use(express.json({ limit: '32kb' }));
 
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'streamforge-api', localOnly }));
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'streamforge-api', localOnly,
+  mysqlConfigured: Boolean(channelStore) }));
 
 app.use('/api', (req, res, next) => {
   if (localOnly) return next();
@@ -115,6 +121,10 @@ if (youtube) {
   app.get('/api/youtube/oauth/callback', async (req, res) => {
     if (req.query.error) return res.redirect('/?youtube=cancelled');
     try {
+      if (channelStudio) {
+        const channelId = await channelStudio.exchangePendingOAuth(req.query.code, req.query.state);
+        if (channelId) return res.redirect(`/channels?youtube=connected&channel=${encodeURIComponent(channelId)}`);
+      }
       await youtube.exchangeCode(req.query.code, req.query.state);
       res.redirect('/?youtube=connected');
     } catch (error) {
@@ -132,6 +142,7 @@ if (youtube) {
     try {
       const current = manager.getStatus();
       if (current.desiredRunning || manager.process) throw new YouTubeApiError('Stop the current stream before creating another broadcast', 409);
+      if (channelStudio && channelStudio.runningCount() >= channelStudio.maxStreams) throw new YouTubeApiError('Device concurrent stream limit reached. Stop another stream first.', 409);
       if (!current.video) throw new YouTubeApiError('Upload your video before creating a live broadcast');
       const broadcast = await youtube.createBroadcast(req.body, req.file);
       const stream = await manager.start(req.body.loop !== 'false');
@@ -145,6 +156,8 @@ if (youtube) {
     } catch (error) { next(error); }
   });
 }
+
+registerChannelRoutes(app, { store: channelStore, studio: channelStudio, maxBytes });
 
 const uploader = multer({
   storage: multer.diskStorage({
@@ -203,6 +216,9 @@ app.post('/api/upload', (req, res, next) => {
 
 app.post('/api/start', async (req, res, next) => {
   try {
+    if (channelStudio && !manager.getStatus().desiredRunning && channelStudio.runningCount() >= channelStudio.maxStreams) {
+      throw new ChannelError('Device concurrent stream limit reached. Stop another stream first.', 409);
+    }
     const status = await manager.start(req.body?.loop !== false);
     res.status(202).json(status);
   } catch (error) {
@@ -230,12 +246,13 @@ if (env.WEB_STATIC_DIR) {
 app.use((error, req, res, _next) => {
   const uploadError = error instanceof multer.MulterError;
   const youtubeError = error instanceof YouTubeApiError;
-  const expected = uploadError || youtubeError || /video|upload|stream|ffmpeg|file|origin|format/i.test(error.message || '');
+  const channelError = error instanceof ChannelError;
+  const expected = uploadError || youtubeError || channelError || /video|upload|stream|ffmpeg|file|origin|format/i.test(error.message || '');
   if (!expected) console.error('API error:', error);
   const message = uploadError && error.code === 'LIMIT_FILE_SIZE'
     ? req.path.startsWith('/api/youtube') ? 'Image exceeds the 6 MB upload limit' : 'Video exceeds the configured upload limit'
     : expected ? error.message : 'Unexpected server error';
-  const status = youtubeError ? error.status : error.message === 'Origin not allowed' ? 403
+  const status = youtubeError || channelError ? error.status : error.message === 'Origin not allowed' ? 403
     : uploadError || expected ? 400 : 500;
   res.status(status).json({ error: message });
 });
@@ -245,6 +262,7 @@ const host = env.LISTEN_HOST || '0.0.0.0';
 const server = app.listen(port, host, () => console.log('StreamForge API listening on ' + host + ':' + port));
 function shutdown() {
   manager.shutdown();
+  channelStudio?.shutdown();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 4000).unref();
 }

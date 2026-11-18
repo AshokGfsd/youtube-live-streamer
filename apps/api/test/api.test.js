@@ -15,6 +15,7 @@ test('API health works but control endpoints require the owner token', async () 
   const staticDir = path.join(dir, 'public');
   await fs.mkdir(staticDir);
   await fs.writeFile(path.join(staticDir, 'index.html'), '<!doctype html><title>StreamForge Android</title>');
+  await fs.writeFile(path.join(staticDir, 'channels.html'), '<!doctype html><title>My Channels</title>');
   const token = 'integration-test-access-token-very-long';
   const port = 42000 + Math.floor(Math.random() * 12000);
   const child = spawn(process.execPath, ['src/server.js'], {
@@ -37,6 +38,9 @@ test('API health works but control endpoints require the owner token', async () 
     const dashboard = await fetch(address + '/');
     assert.equal(dashboard.status, 200);
     assert.match(await dashboard.text(), /StreamForge Android/);
+    const channelPage = await fetch(address + '/channels');
+    assert.equal(channelPage.status, 200);
+    assert.match(await channelPage.text(), /My Channels/);
     const anonymous = await fetch(address + '/api/status');
     assert.equal(anonymous.status, 401);
     const authenticated = await fetch(address + '/api/status', { headers: { Authorization: 'Bearer ' + token } });
@@ -47,6 +51,8 @@ test('API health works but control endpoints require the owner token', async () 
     const status = await authenticated.json();
     assert.equal(status.hasStreamKey, false);
     assert.equal(status.video, null);
+    const channels = await (await fetch(address + '/api/channels', { headers: { Authorization: 'Bearer ' + token } })).json();
+    assert.equal(channels.configured, false);
     const impossibleStart = await fetch(address + '/api/start', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ loop: true }) });
     assert.equal(impossibleStart.status, 400);
 

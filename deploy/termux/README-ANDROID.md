@@ -26,6 +26,111 @@ bash start-android.sh
 
 It preserves `.env` and `data/` in `~/StreamForge-Android`. Stop an active broadcast before updating: the start script restarts the Termux server. **Never expose port 4000 publicly** while in password-free local mode.
 
+## NEW: MySQL multi-channel setup (Android / Termux)
+
+The **My Channels** page (`http://127.0.0.1:4000/channels`) stores separate YouTube
+profiles, branding, stream destinations, default titles and privacy settings in
+MySQL-compatible MariaDB. Channel stream keys and Google refresh tokens are
+encrypted using AES-256-GCM **before** they are written to MySQL. The classic
+single-stream dashboard continues working without a database.
+
+> This step has to be performed **on your phone**. A remote GitHub push cannot
+> install MariaDB or write your private database password on the device.
+
+1. Install MariaDB and OpenSSL command-line tools:
+
+   ```bash
+   pkg update
+   pkg install mariadb openssl-tool -y
+   ```
+
+2. Initialize MariaDB **only if** the installer has not already initialized it:
+
+   ```bash
+   mariadb-install-db --datadir="$PREFIX/var/lib/mysql" --auth-root-authentication-method=normal
+   ```
+
+   An "already exists" message means you can skip this step. Start the server
+   for initial database setup:
+
+   ```bash
+   mariadbd-safe --datadir="$PREFIX/var/lib/mysql" --bind-address=127.0.0.1 &
+   mariadb -u root
+   ```
+
+3. At the MariaDB prompt, create a private database and dedicated local user.
+   Replace `CHOOSE_A_PRIVATE_PASSWORD` with your own strong password:
+
+   ```sql
+   CREATE DATABASE IF NOT EXISTS streamforge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE USER IF NOT EXISTS 'streamforge'@'127.0.0.1' IDENTIFIED BY 'CHOOSE_A_PRIVATE_PASSWORD';
+   GRANT ALL PRIVILEGES ON streamforge.* TO 'streamforge'@'127.0.0.1';
+   FLUSH PRIVILEGES;
+   EXIT;
+   ```
+
+4. Create an **independent encryption key** (do not reuse your stream key):
+
+   ```bash
+   openssl rand -hex 32
+   nano ~/StreamForge-Android/.env
+   ```
+
+   Add these fields to the **existing** `.env` and substitute your password and
+   generated 64-character encryption key:
+
+   ```dotenv
+   MYSQL_HOST=127.0.0.1
+   MYSQL_PORT=3306
+   MYSQL_USER=streamforge
+   MYSQL_PASSWORD=CHOOSE_A_PRIVATE_PASSWORD
+   MYSQL_DATABASE=streamforge
+   CHANNEL_ENCRYPTION_KEY=YOUR_64_CHARACTER_HEX_KEY
+   MAX_CONCURRENT_STREAMS=1
+   ```
+
+   **Do not paste secrets into GitHub or chat. Never change or lose
+   `CHANNEL_ENCRYPTION_KEY`: saved keys would become unreadable. Back up your
+   private `.env` securely.** The backend automatically creates its table on
+   startup; no SQL migration tool is needed.
+
+5. Pull and start the latest app:
+
+   ```bash
+   cd ~/youtube-live-streamer
+   git pull
+   bash start-android.sh
+   ```
+
+   `start.sh` now keeps MariaDB in a separate `streamforge-db` tmux session when
+   configured; StreamForge itself uses the `streamforge` session. The session
+   is only accessible from the phone by default.
+
+6. Open **http://127.0.0.1:4000/channels**. Press **New channel** and complete:
+
+   - **Identity:** channel name, handle and optional YouTube ID/URL.
+   - **Branding:** description, keywords and category saved to MySQL.
+   - **Connection:** that channel's reusable YouTube stream key, encrypted.
+   - **Preferences:** privacy, default live title/description and looping.
+
+   **Save & continue** writes the completed step immediately to MySQL. Closing
+   the wizard keeps saved steps. **Continue setup** resumes the next unfinished
+   step. Once ready, every channel has its own video, upload button and start/stop
+   controls. You can connect **each** channel to Google separately (same Google
+   OAuth client and redirect URL as the existing setup) to automate broadcasts.
+
+**Phone performance:** `MAX_CONCURRENT_STREAMS=1` is deliberate. You can manage
+many YouTube channels while running only one FFmpeg encoder at a time. Increase
+this only on a device with sufficient CPU, memory, upload bandwidth and cooling.
+The classic single-channel encoder also counts toward this limit for the new
+channel controls. Starting a YouTube encoder does not guarantee YouTube has
+actually published the event: confirm it in the Live Control Room.
+
+**Privacy note:** Channel name/handle and branding settings are saved as a
+workspace profile. They are not automatically edited on YouTube. Google OAuth
+can create broadcasts for each channel; use YouTube Studio to change the actual
+channel name and handle.
+
 The ZIP method below is an alternative if you prefer not to use Git.
 
 ## Optional: automate YouTube titles, thumbnails and channel branding

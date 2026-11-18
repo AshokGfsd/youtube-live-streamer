@@ -1,0 +1,48 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { ChannelError, SecretBox, validateChannelStep, ChannelStore } from '../src/channel-store.js';
+
+const KEY = 'a'.repeat(64);
+
+test('encrypts stream keys with authenticated encryption and never stores plaintext', () => {
+  const box = new SecretBox(KEY);
+  const secret = 'abc0-qw_very-private-stream-key';
+  const encrypted = box.encrypt(secret);
+  assert.equal(encrypted.includes(secret), false);
+  assert.equal(box.decrypt(encrypted), secret);
+  assert.notEqual(box.encrypt(secret), encrypted);
+  assert.throws(() => new SecretBox('111'), /CHANNEL_ENCRYPTION_KEY/);
+  assert.throws(() => new SecretBox('b'.repeat(64)).decrypt(encrypted));
+});
+
+test('each wizard step validates its own data and rejects invalid ingest servers', () => {
+  assert.equal(validateChannelStep(1, { displayName: 'ClueRipple Live', handle: '@ClueRipple' }).handle, 'ClueRipple');
+  assert.throws(() => validateChannelStep(1, { displayName: '' }), ChannelError);
+  assert.throws(() => validateChannelStep(1, { displayName: 'A', channelUrl: 'https://evil.example/' }), /youtube.com/);
+  assert.throws(() => validateChannelStep(3, { streamKey: 'valid1234', ingestUrl: 'rtmps://attacker.example/live2' }), /official YouTube/);
+  assert.equal(validateChannelStep(3, { streamKey: 'valid1234' }).ingestUrl, 'rtmps://a.rtmps.youtube.com/live2');
+  assert.equal(validateChannelStep(3, {}, true).streamKey, '');
+  assert.throws(() => validateChannelStep(4, { loop: 'yes' }), /loop/);
+  assert.equal(validateChannelStep(4, { loop: true }).privacy, 'private');
+});
+
+test('database write uses whitelisted columns and binds secret values', async () => {
+  const calls = [];
+  const row = {
+    id: 'c4b7751a-8072-4b5a-95ae-17348e1f177b', displayName: 'ClueRipple',
+    streamKeySecret: null, oauthRefreshSecret: null, wizardStep: 0,
+    createdAt: new Date(), updatedAt: new Date(), completedAt: null, loop: 1,
+  };
+  const pool = { async execute(sql, params) {
+    calls.push({ sql, params });
+    if (sql.startsWith('SELECT')) return [[row]];
+    return [{ affectedRows: 1 }];
+  } };
+  const store = new ChannelStore(pool, new SecretBox(KEY));
+  await store.saveStep(row.id, 3, { streamKey: 'valid-private-key', ingestUrl: 'rtmps://a.rtmps.youtube.com/live2' });
+  const updated = calls.find((call) => call.sql.startsWith('UPDATE'));
+  assert.match(updated.sql, /stream_key_secret = \?/);
+  assert.equal(updated.sql.includes('valid-private-key'), false);
+  assert.equal(updated.params.some((param) => String(param).includes('valid-private-key')), false);
+  assert.equal(updated.params.at(-1), row.id);
+});

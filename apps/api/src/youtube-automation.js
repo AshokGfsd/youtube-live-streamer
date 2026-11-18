@@ -43,13 +43,14 @@ export function validateBroadcast(input) {
 }
 
 export class YouTubeAutomation {
-  constructor({ dataDir, streamKey, clientId, clientSecret, port = 4000, fetchImpl = fetch }) {
+  constructor({ dataDir, streamKey, clientId, clientSecret, port = 4000, fetchImpl = fetch, accountStore = null }) {
     this.file = path.join(dataDir, 'youtube-oauth.json');
     this.streamKey = streamKey || '';
     this.clientId = clientId || '';
     this.clientSecret = clientSecret || '';
     this.redirectUri = `http://127.0.0.1:${port}/api/youtube/oauth/callback`;
     this.fetchImpl = fetchImpl;
+    this.accountStore = accountStore;
     this.account = null;
     this.accessToken = null;
     this.accessExpiresAt = 0;
@@ -60,6 +61,10 @@ export class YouTubeAutomation {
   get configured() { return Boolean(this.clientId && this.clientSecret); }
 
   async initialize() {
+    if (this.accountStore) {
+      this.account = await this.accountStore.load();
+      return;
+    }
     try {
       const account = JSON.parse(await fs.readFile(this.file, 'utf8'));
       if (typeof account.refreshToken === 'string' && account.refreshToken) {
@@ -91,7 +96,7 @@ export class YouTubeAutomation {
       response_type: 'code',
       scope: YOUTUBE_SCOPE,
       access_type: 'offline',
-      prompt: 'consent',
+      prompt: 'select_account consent',
       state,
     });
     return `${OAUTH_API}?${params}`;
@@ -130,6 +135,10 @@ export class YouTubeAutomation {
   }
 
   async save() {
+    if (this.accountStore) {
+      await this.accountStore.save(this.account);
+      return;
+    }
     const tmp = this.file + '.tmp';
     await fs.writeFile(tmp, JSON.stringify(this.account), { mode: 0o600 });
     await fs.rename(tmp, this.file);
@@ -140,7 +149,8 @@ export class YouTubeAutomation {
     this.accessToken = null;
     this.accessExpiresAt = 0;
     this.lastBroadcast = null;
-    await fs.rm(this.file, { force: true });
+    if (this.accountStore) await this.accountStore.delete();
+    else await fs.rm(this.file, { force: true });
   }
 
   async getAccessToken() {

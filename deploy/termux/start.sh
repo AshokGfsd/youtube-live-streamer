@@ -28,6 +28,25 @@ fi
 
 termux-wake-lock
 
+# Keep the local MariaDB worker alive independently from Chrome and the Node API.
+# The database is only started when multi-channel mode has been configured.
+if grep -Eq '^MYSQL_DATABASE=[^[:space:]#]+' .env; then
+  if ! command -v mariadbd >/dev/null 2>&1; then
+    printf 'MySQL mode is configured but MariaDB is missing. Run: pkg install mariadb -y\n'
+    exit 1
+  fi
+  if ! mariadb-admin ping --protocol=tcp --host=127.0.0.1 --silent >/dev/null 2>&1; then
+    if ! tmux has-session -t streamforge-db 2>/dev/null; then
+      tmux new-session -d -s streamforge-db "mariadbd --basedir=$PREFIX --datadir=$PREFIX/var/lib/mysql --bind-address=127.0.0.1"
+      printf 'Starting private MariaDB service in tmux session streamforge-db...\n'
+    fi
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      if mariadb-admin ping --protocol=tcp --host=127.0.0.1 --silent >/dev/null 2>&1; then break; fi
+      sleep 1
+    done
+  fi
+fi
+
 if tmux has-session -t streamforge 2>/dev/null; then
   printf 'StreamForge server is already running.\n'
 else

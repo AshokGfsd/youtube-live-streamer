@@ -1,4 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap');
+.channel-studio-link{display:inline-flex;align-items:center;gap:8px;margin-top:17px;color:#09956f;background:#e4f7ee;border:1px solid #ccebdc;padding:10px 13px;border-radius:9px;font-size:11px;font-weight:800}
+.channel-studio-link:hover{background:#d2f4e4}
 
 :root{--ink:#151f33;--muted:#8490a2;--line:#e9edf1;--green:#16b889;--green-dark:#079970;--canvas:#f7f9fb;--nav:#111927}
 *{box-sizing:border-box}
