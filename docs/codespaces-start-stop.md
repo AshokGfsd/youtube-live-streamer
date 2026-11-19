@@ -76,3 +76,52 @@ tmux capture-pane -pt sf-cloud-browser -S -80
 Codespaces can pause or stop an idle machine, even when the services are in
 tmux. These scripts do not provide guaranteed 24/7 hosting. They do not create
 cloud resources or enable billing.
+
+## Search + Select Instagram Reels playlist
+
+This feature works entirely through the Codespaces StreamForge dashboard and
+the existing private Chrome/noVNC browser. It does **not** automatically search
+Instagram's servers, scrape search results, or download anyone's videos.
+
+1. Open the StreamForge dashboard's **Instagram Reels Live** page and select a
+   YouTube channel.
+2. In the private noVNC desktop, sign in to Instagram. Use Instagram's own
+   **Search / Explore** interface to find a Reel you are allowed to rebroadcast.
+   Open the **individual Reel** so the Chrome address is like
+   `https://www.instagram.com/reel/SHORTCODE/`.
+3. In dashboard **Step 03 — Search & Select Reels**, click **Add Current Reel**.
+   This detects the URL of your currently open Reel tab (CDP port 9222) and
+   saves the link to MySQL under the selected channel. Alternatively paste a
+   Reel URL and click **Add Pasted Link**. Optional custom names help organize
+   your playlist.
+4. Repeat for additional Reels. Use **up/down** buttons to set play order, or
+   **remove** unwanted entries. A channel can save at most **60** Reel links.
+5. Select **My selected Reels** (the normal **Explore feed** stays available)
+   and choose whether **Loop the selected playlist** is enabled. StreamForge
+   automatically saves this selection with your live settings.
+6. Set YouTube visibility to **Private**, confirm you own/have a license for
+   every Reel **and its audio**, and start. The controller navigates through
+   the selected URLs in order after each Reel finishes. When looping is off,
+   the encoder stops after the last Reel. The iPhone frame, screen capture,
+   YouTube stream key and PulseAudio setup do not change.
+
+Playlist edits are blocked while that channel is live. Stop the livestream
+first, edit, and restart. Some videos can fail when deleted, region-restricted,
+login-gated or blocked by autoplay; open the private Chrome window and check
+playback if the live diagnostics report a Reel could not play.
+
+From the Codespaces terminal, check the selected playback position and current
+errors without exposing your stream key:
+
+```bash
+curl http://127.0.0.1:4000/api/instagram-live/status
+```
+
+**After pulling updated code**, restart the two scripts to copy the new API
+and prebuilt dashboard into the running app:
+
+```bash
+git pull --ff-only origin feature/google-cloud-free-trial
+bash stop-all.sh
+bash start-all.sh
+```

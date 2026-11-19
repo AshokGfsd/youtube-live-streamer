@@ -14,7 +14,7 @@ function isReelsUrl(value) {
   try {
     const url = new URL(value);
     return url.protocol === 'https:' && ['www.instagram.com', 'instagram.com'].includes(url.hostname) &&
-      (url.pathname === '/reels' || url.pathname.startsWith('/reels/'));
+      (url.pathname === '/reels' || url.pathname.startsWith('/reels/') || url.pathname.startsWith('/reel/'));
   } catch { return false; }
 }
 
@@ -30,15 +30,24 @@ export async function findInstagramTab(port = 9222) {
   }
   let tabs;
   try { tabs = await tabList(port); }
-  catch { throw new InstagramBrowserError('Start Termux Chromium with --remote-debugging-port=9222 before starting the live feed'); }
+  catch { throw new InstagramBrowserError('Start your private Instagram Chrome with --remote-debugging-port=9222 before starting the live feed'); }
   const tab = tabs.find((candidate) => candidate.type === 'page' &&
     isReelsUrl(candidate.url) && candidate.webSocketDebuggerUrl);
-  if (!tab) throw new InstagramBrowserError('Open https://www.instagram.com/reels/ and sign in manually in Termux Chromium first');
+  if (!tab) throw new InstagramBrowserError('Open Instagram Reels in your private Chrome window and sign in manually first');
   const socketUrl = new URL(tab.webSocketDebuggerUrl);
   if (socketUrl.protocol !== 'ws:' || !['127.0.0.1', 'localhost', '[::1]'].includes(socketUrl.hostname)) {
     throw new InstagramBrowserError('Refusing a non-local Chrome debugger', 400);
   }
-  return { socketUrl: `ws://127.0.0.1:${port}${socketUrl.pathname}${socketUrl.search}`, title: 'Instagram Reels' };
+  return { socketUrl: `ws://127.0.0.1:${port}${socketUrl.pathname}${socketUrl.search}`,
+    title: 'Instagram Reels', url: tab.url };
+}
+
+export function nextPlaylistIndex(current, total, loop) {
+  if (!Number.isInteger(current) || !Number.isInteger(total) || total < 1 || current < 0 || current >= total) {
+    throw new InstagramBrowserError('Invalid playlist position', 400);
+  }
+  if (current + 1 < total) return current + 1;
+  return loop ? 0 : null;
 }
 
 // Keep the X11/FFmpeg capture at its full physical resolution, but give the
@@ -121,6 +130,7 @@ class DevtoolsSession {
 
 export class InstagramReelsController {
   constructor({ port = 9222, scroll = 'wheel', mobileLayout = true, captureWidth = 540, captureHeight = 960,
+    playlistUrls = [], playlistLoop = true, onPlaylistPosition = () => {}, onPlaylistEnd = () => {},
     onState = () => {}, onError = () => {} } = {}) {
     this.port = port;
     this.scroll = scroll;
@@ -129,6 +139,11 @@ export class InstagramReelsController {
     this.captureHeight = captureHeight;
     this.onState = onState;
     this.onError = onError;
+    this.playlistUrls = playlistUrls;
+    this.playlistLoop = playlistLoop;
+    this.playlistIndex = 0;
+    this.onPlaylistPosition = onPlaylistPosition;
+    this.onPlaylistEnd = onPlaylistEnd;
     this.stopped = false;
     this.session = null;
     this.handled = 0;
@@ -145,10 +160,15 @@ export class InstagramReelsController {
         }
       }
       await this.session.call('Runtime.enable');
-      await this.session.evaluate(`(${installReelsWatcher.toString()})(${JSON.stringify({ tickMs: 130 })})`);
-      // Let Instagram react to the newly narrow viewport before checking playback.
-      await delay(this.mobileLayout ? 600 : 250);
-      this.lastState = await this.readState();
+      if (this.playlistUrls.length) {
+        await this.session.call('Page.enable');
+        await this.loadPlaylistReel(0);
+      } else {
+        await this.session.evaluate(`(${installReelsWatcher.toString()})(${JSON.stringify({ tickMs: 130 })})`);
+        // Let Instagram react to the newly narrow viewport before checking playback.
+        await delay(this.mobileLayout ? 600 : 250);
+        this.lastState = await this.readState();
+      }
       if (!this.lastState?.activeId || !['playing', 'scroll-requested'].includes(this.lastState.phase)) {
         throw new InstagramBrowserError('Play one Reel in your Chromium Instagram tab before starting the live stream', 409);
       }
@@ -164,6 +184,39 @@ export class InstagramReelsController {
     const raw = await this.session.evaluate('JSON.stringify(globalThis.__streamforgeReels?.state || null)');
     if (raw === undefined || raw === null) return null;
     try { return JSON.parse(raw); } catch { return null; }
+  }
+
+  async loadPlaylistReel(index) {
+    // Page.navigate opens only URLs explicitly selected and saved by the user.
+    // Login cookies remain inside the same local Chromium profile.
+    this.playlistIndex = index;
+    this.handled = 0;
+    await this.session.call('Page.navigate', { url: this.playlistUrls[index] });
+    this.onPlaylistPosition(index);
+    for (let attempt = 0; attempt < 45 && !this.stopped; attempt++) {
+      await delay(350);
+      try {
+        await this.session.evaluate(`(${installReelsWatcher.toString()})({tickMs:130})`);
+        const state = await this.readState();
+        if (!state?.activeId) continue;
+        if (state.phase === 'paused') {
+          // Try normal HTML video playback. Chrome may still require a click
+          // in the VNC window if the website blocks autoplay with audio.
+          await this.session.evaluate(`(() => { const video = [...document.querySelectorAll('video')]
+            .find((item) => !item.ended && item.getBoundingClientRect().width > 100);
+            video?.play().catch(() => {}); return Boolean(video); })()`);
+          continue;
+        }
+        if (state.phase === 'playing' || state.phase === 'scroll-requested') {
+          this.lastState = state;
+          this.onState(state);
+          return;
+        }
+      } catch {
+        // Navigation can destroy the JS execution context for a short time.
+      }
+    }
+    throw new InstagramBrowserError('Selected Reel did not play. Open the private Chrome window and check login, URL and autoplay.');
   }
 
   async scrollOnce(state) {
@@ -193,7 +246,16 @@ export class InstagramReelsController {
         if (state.phase === 'stalled') throw new InstagramBrowserError('Reels auto-scroll stalled. Try Arrow scroll or refresh the Instagram tab.');
         if (state.scrollRequest > this.handled) {
           this.handled = state.scrollRequest;
-          await this.scrollOnce(state);
+          if (this.playlistUrls.length) {
+            const index = nextPlaylistIndex(this.playlistIndex, this.playlistUrls.length, this.playlistLoop);
+            if (index === null) {
+              this.onPlaylistEnd();
+              return;
+            }
+            await this.loadPlaylistReel(index);
+          } else {
+            await this.scrollOnce(state);
+          }
         }
         await delay(300);
       } catch (error) {

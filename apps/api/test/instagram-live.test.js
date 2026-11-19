@@ -7,6 +7,8 @@ test('validates capture dimensions, scroll method, and rights settings', () => {
   assert.equal(validateInstagramSettings({}).audio, 'silent');
   assert.equal(validateInstagramSettings({}).mobileLayout, true);
   assert.equal(validateInstagramSettings({}).frame, 'iphone');
+  assert.equal(validateInstagramSettings({}).playlistMode, 'feed');
+  assert.equal(validateInstagramSettings({}).playlistLoop, true);
   assert.equal(validateInstagramSettings({ scroll: 'arrow', captureWidth: 320 }).scroll, 'arrow');
   assert.throws(() => validateInstagramSettings({ captureWidth: 321 }), /even numbers/);
   assert.throws(() => validateInstagramSettings({ privacy: 'unknown' }), /privacy/);
@@ -15,6 +17,8 @@ test('validates capture dimensions, scroll method, and rights settings', () => {
   assert.throws(() => validateInstagramSettings({ createBroadcast: 'false' }), /automatic broadcast/);
   assert.throws(() => validateInstagramSettings({ mobileLayout: 'yes' }), /mobile Reels layout/);
   assert.throws(() => validateInstagramSettings({ frame: 'tablet' }), /video frame/);
+  assert.throws(() => validateInstagramSettings({ playlistMode: 'random' }), /Selected Reels mode/);
+  assert.throws(() => validateInstagramSettings({ playlistLoop: 'yes' }), /Playlist loop/);
   assert.throws(() => validateInstagramSettings({ captureWidth: 960, captureHeight: 540 }), /portrait capture/);
   assert.equal(validateInstagramSettings({ mobileLayout: false, captureWidth: 960, captureHeight: 540 }).mobileLayout, false);
 });
@@ -91,4 +95,52 @@ test('start requires explicit rights and releases browser and FFmpeg on stop', a
   await manager.stop();
   assert.equal(manager.getStatus().running, false);
   assert.equal(controllerStopped, true);
+});
+
+test('selected Reels mode sends saved URLs in order and reports playlist position', async () => {
+  const videos = [
+    { reelUrl: 'https://www.instagram.com/reel/First000/' },
+    { reelUrl: 'https://www.instagram.com/reel/Second000/' },
+  ];
+  let controllerOptions;
+  const settings = { ...validateInstagramSettings({ playlistMode: 'selected', playlistLoop: false }) };
+  const manager = new InstagramLiveManager({
+    store: {
+      pool: { execute: async () => [[{ settings_json: settings }]] },
+      get: async () => ({ completedAt: new Date(), streamKeySecret: 'encrypted', ingestUrl: 'rtmps://a.rtmps.youtube.com/live2' }),
+      getPublic: async () => ({ defaultTitle: '', defaultDescription: '', privacy: 'private' }),
+      getStreamKey: async () => 'secret-key',
+    },
+    studio: { runningCount: () => 0, maxStreams: 1 },
+    makeController: (options) => {
+      controllerOptions = options;
+      return {
+        connect: async () => {
+          options.onPlaylistPosition(0);
+          return { activeId: 1, phase: 'playing', viewportWidth: 360, viewportHeight: 640,
+            videoRect: { x: 32, y: 17, width: 223, height: 397 } };
+        },
+        run: async () => {}, stop: async () => {},
+      };
+    },
+    spawnProcess: () => {
+      const child = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => child.emit('exit', 0);
+      process.nextTick(() => child.emit('spawn'));
+      return child;
+    },
+  });
+  manager.playlist.list = async () => videos;
+  let result = await manager.start('channel', true);
+  assert.deepEqual(controllerOptions.playlistUrls, videos.map(({ reelUrl }) => reelUrl));
+  assert.equal(controllerOptions.playlistLoop, false);
+  assert.deepEqual(result.playlist, { current: 1, total: 2, loop: false, reelUrl: videos[0].reelUrl });
+  controllerOptions.onPlaylistPosition(1);
+  result = manager.getStatus();
+  assert.deepEqual(result.playlist, { current: 2, total: 2, loop: false, reelUrl: videos[1].reelUrl });
+  await manager.stop();
+  assert.equal(manager.getStatus().playlist, null);
+  manager.playlist.list = async () => [];
+  await assert.rejects(() => manager.start('channel', true), /empty/);
 });
