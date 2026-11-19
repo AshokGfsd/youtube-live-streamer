@@ -89,7 +89,9 @@ app.use(cors((req, callback) => callback(null, {
   allowedHeaders: ['Authorization', 'Content-Type'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'],
 })));
-app.use(express.json({ limit: '32kb' }));
+// An in-memory direct MP4 playlist may include up to 100 signed CDN URLs.
+// The endpoints still validate each URL and never persist those signed links.
+app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'streamforge-api', localOnly,
   mysqlConfigured: Boolean(channelStore) }));

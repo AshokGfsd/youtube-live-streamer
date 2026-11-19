@@ -20,7 +20,15 @@ function safeUrlLabel(value: string) {
   } catch { return 'Invalid media URL'; }
 }
 
-export default function MediaProbePanel({ request }: { request: ApiRequest }) {
+type MediaProbeProps = {
+  request: ApiRequest;
+  onMediaUrlsChange: (urls: string[]) => void;
+  directActive: boolean;
+  onDirectActiveChange: (active: boolean) => void;
+  liveLocked: boolean;
+};
+
+export default function MediaProbePanel({ request, onMediaUrlsChange, directActive, onDirectActiveChange, liveLocked }: MediaProbeProps) {
   const [url, setUrl] = useState('');
   const [imported, setImported] = useState<string[]>([]);
   const [importWarning, setImportWarning] = useState('');
@@ -46,11 +54,12 @@ export default function MediaProbePanel({ request }: { request: ApiRequest }) {
       if (!links.length) throw new Error('No direct video URLs found. Export sfCollector.results() as JSON.');
       setImported(links);
       setUrl(links[0]);
+      onMediaUrlsChange(links);
       const exportedAt = typeof record.exportedAt === 'string' ? Date.parse(record.exportedAt) : NaN;
       if (Number.isFinite(exportedAt) && Date.now() - exportedAt > 30 * 60_000) {
         setImportWarning('This JSON was exported over 30 minutes ago. Instagram signed MP4 links can expire. If you see 404, paste a newly copied video URL.');
       }
-    } catch (cause) { setImported([]); setError((cause as Error).message); }
+    } catch (cause) { setImported([]); onMediaUrlsChange([]); setError((cause as Error).message); }
   }
 
   async function probe(decode: boolean) {
@@ -77,21 +86,33 @@ export default function MediaProbePanel({ request }: { request: ApiRequest }) {
           <div className="il-url-input"><Link2 size={17}/>
             <input id="il-media-url" type="url" autoComplete="off" spellCheck={false}
               placeholder="https://instagram...fbcdn.net/...mp4?..." value={url}
-              onChange={(event) => { setUrl(event.target.value); setResult(null); setError(''); setCopied(false); }} disabled={busy}/>
+              onChange={(event) => {
+                const value = event.target.value;
+                setUrl(value); setResult(null); setError(''); setCopied(false);
+                if (!imported.includes(value)) { setImported([]); onMediaUrlsChange(value.trim() ? [value.trim()] : []); }
+              }} disabled={busy || liveLocked}/>
           </div>
         </div>
         <label className="il-probe-upload"><Upload size={17}/><span>Import collector JSON</span>
-          <input type="file" accept=".json,application/json" disabled={busy} onChange={(event) => {
+          <input type="file" accept=".json,application/json" disabled={busy || liveLocked} onChange={(event) => {
             void importJson(event.target.files?.[0]); event.currentTarget.value = '';
           }}/>
         </label>
         {imported.length > 0 && <div><label className="il-label" htmlFor="il-imported-video">IMPORTED DIRECT URLS · {imported.length}</label>
-          <select id="il-imported-video" value={imported.includes(url) ? url : ''} disabled={busy}
+          <select id="il-imported-video" value={imported.includes(url) ? url : ''} disabled={busy || liveLocked}
             onChange={(event) => { setUrl(event.target.value); setResult(null); setError(''); setCopied(false); }}>
             <option value="">Choose a collected video</option>
             {imported.map((item, index) => <option key={index} value={item}>{index + 1}. {safeUrlLabel(item)}</option>)}
           </select>
+          <p className="il-hint">This dropdown chooses just the clip to <b>test</b>. Direct livestream mode plays <b>all {imported.length} imported clips</b> in JSON order.</p>
         </div>}
+        <label className="il-option"><input type="checkbox" checked={directActive} disabled={liveLocked}
+          onChange={(event) => onDirectActiveChange(event.target.checked)}/>
+          <span><b>Use these MP4 links as YouTube Live source</b>
+            <small>{directActive ? 'Direct FFmpeg playlist mode ON — Start livestream will stream these MP4s, NOT the VNC browser.'
+              : 'OFF — Start livestream still captures the Chrome/VNC screen.'}</small></span>
+        </label>
+        {directActive && <p className="il-hint"><b>{imported.length || (url.trim() ? 1 : 0)} MP4(s) ready.</b> Import a fresh JSON playlist before starting. The list is sent only when you click Start; missing/expired URLs will interrupt the direct stream. For best reliability, use clips with consistent video and audio tracks.</p>}
         {importWarning && <p className="il-hint" role="status">{importWarning}</p>}
         {url && <button type="button" className="il-media-copy" disabled={busy} onClick={async () => {
           try { await navigator.clipboard.writeText(url); setCopied(true); }

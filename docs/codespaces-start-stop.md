@@ -183,3 +183,39 @@ After pulling and restarting, test **three distinct clips** (with audio,
 without audio, and a portrait/landscape variation). Share the test results
 before selecting the Phase 2 continuous-media playlist implementation.
 Only use sources you own or have permission to rebroadcast.
+
+## Direct MP4 playlist → YouTube Live (no VNC screen capture)
+
+The earlier **Experiment 01** buttons only check and encode a short sample.
+To make the MP4 links the actual livestream video source:
+
+1. Stop any existing browser/X11 livestream first.
+2. In **Instagram Reels Live**, choose the YouTube channel, then import a
+   **fresh** collector JSON in **Direct MP4 → FFmpeg** (or paste one MP4 URL).
+3. Turn on **Use these MP4 links as YouTube Live source**. The live control
+   changes to **Start Direct MP4 livestream**; if this is off, Start still
+   sends the VNC/Chrome screen exactly as before.
+4. Choose **Loop the selected playlist** in Step 03 (on = repeat; off = finish
+   after the final clip). Set the title and YouTube visibility to **Private**.
+   The mobile capture width/height, FPS, bitrate and iPhone-frame choice are
+   reused for direct encoding. Browser scrolling and PulseAudio options do
+   not apply to the direct source; encoded MP4 audio is used when present.
+5. Confirm that you have the rights to broadcast **all clips and their audio**,
+   then click **Start Direct MP4 livestream** and verify the actual picture
+   and audio in YouTube Studio. Chrome/noVNC may remain open, but its screen
+   is not used in this mode. Stop using the same **Stop livestream** button.
+
+The JSON is sent to the API only when you click Start, with a maximum of 100
+direct HTTPS Instagram/Meta CDN MP4 URLs. The server writes a private, temporary
+FFmpeg concat playlist under the system temporary directory, removes it on
+stop, and never stores the signed links in MySQL or Git. Re-import after a
+page reload or restart. The existing browser/X11 mode remains available.
+
+**Direct playlist limitations:** This first implementation uses the FFmpeg
+concat demuxer, which works best for clips with matching video and audio stream
+layouts/codecs. Video-only or inconsistent media can play without audio or fail
+at clip transitions. Signed MP4 URLs expire; a long looping stream can stop
+when a link expires. If FFmpeg logs an inaccessible/expired URL or a stream
+structure error, stop, export fresh links and try a smaller set of compatible
+clips. This is direct remote media playback, not a downloader or permanent
+video archive. Use only licensed content.

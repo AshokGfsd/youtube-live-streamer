@@ -1,15 +1,19 @@
 import { spawn } from 'node:child_process';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ChannelError } from './channel-store.js';
 import { InstagramReelsController, findInstagramTab } from './instagram-cdp.js';
 import { InstagramPlaylistStore, normalizeReelUrl } from './instagram-playlist.js';
 import { InstagramMediaProber } from './instagram-media-probe.js';
+import { buildDirectMediaFfmpegArgs, directMediaManifest, validateDirectMediaPlaylist } from './instagram-direct-media.js';
 
 const IPHONE_FRAME = fileURLToPath(new URL('./assets/iphone-frame.svg', import.meta.url));
 
 const DEFAULTS = Object.freeze({
   title: '', description: '', privacy: 'private', scroll: 'wheel',
-  mobileLayout: true, frame: 'iphone', playlistMode: 'feed', playlistLoop: true,
+  mobileLayout: true, frame: 'iphone', sourceMode: 'browser', playlistMode: 'feed', playlistLoop: true,
   captureWidth: 540, captureHeight: 960, captureX: 0, captureY: 0,
   fps: 15, bitrateKbps: 1200, audio: 'silent', createBroadcast: false,
 });
@@ -32,6 +36,7 @@ export function validateInstagramSettings(payload) {
   if (typeof input.mobileLayout !== 'boolean') throw new ChannelError('Invalid mobile Reels layout setting');
   if (!['iphone', 'none'].includes(input.frame)) throw new ChannelError('Invalid live video frame setting');
   if (!['feed', 'selected'].includes(input.playlistMode)) throw new ChannelError('Choose Feed or Selected Reels mode');
+  if (!['browser', 'direct'].includes(input.sourceMode)) throw new ChannelError('Choose Browser or Direct MP4 live source');
   if (typeof input.playlistLoop !== 'boolean') throw new ChannelError('Playlist loop must be enabled or disabled');
   if (!['silent', 'pulse'].includes(input.audio)) throw new ChannelError('Audio must be silent or PulseAudio monitor');
   if (typeof input.createBroadcast !== 'boolean') throw new ChannelError('Invalid automatic broadcast setting');
@@ -134,6 +139,8 @@ export class InstagramLiveManager {
     this.logs = [];
     this.broadcast = null;
     this.playlistState = null;
+    this.sourceMode = null;
+    this.mediaTempDir = null;
   }
 
   async initialize() {
@@ -171,7 +178,7 @@ export class InstagramLiveManager {
   }
 
   getStatus() {
-    return { running: Boolean(this.process), starting: this.starting,
+    return { running: Boolean(this.process), starting: this.starting, sourceMode: this.sourceMode,
       activeChannelId: this.activeChannelId, startedAt: this.startedAt,
       feed: this.feedState ? { phase: this.feedState.phase, activeId: this.feedState.activeId,
         currentTime: this.feedState.currentTime, duration: this.feedState.duration } : null,
@@ -189,15 +196,16 @@ export class InstagramLiveManager {
     return { ...reel, label: `Reel ${reel.shortcode}` };
   }
 
-  async start(id, rightsConfirmed) {
+  async start(id, rightsConfirmed, mediaUrls = undefined) {
     if (rightsConfirmed !== true) throw new ChannelError('Confirm you have rights to broadcast the Instagram Reels and audio', 400);
     if (this.starting || this.process || this.activeChannelId) throw new ChannelError('Instagram feed is already streaming or starting', 409);
     if (this.studio.runningCount() >= this.studio.maxStreams) throw new ChannelError('Stop another channel stream first (device concurrency limit)', 409);
     const channel = await this.store.get(id);
     if (!channel.completedAt || !channel.streamKeySecret) throw new ChannelError('Finish YouTube channel setup and save a stream key first');
     const settings = await this.getSettings(id);
-    const chosenReels = settings.playlistMode === 'selected' ? await this.playlist.list(id) : [];
-    if (settings.playlistMode === 'selected' && chosenReels.length === 0) {
+    const directUrls = settings.sourceMode === 'direct' ? validateDirectMediaPlaylist(mediaUrls) : [];
+    const chosenReels = settings.sourceMode === 'browser' && settings.playlistMode === 'selected' ? await this.playlist.list(id) : [];
+    if (settings.sourceMode === 'browser' && settings.playlistMode === 'selected' && chosenReels.length === 0) {
       throw new ChannelError('Your selected Reels playlist is empty. Add at least one Reel before going live.');
     }
     if (settings.createBroadcast && !settings.title.trim()) throw new ChannelError('Enter a live title before creating a YouTube broadcast');
@@ -208,37 +216,50 @@ export class InstagramLiveManager {
     this.logs = [];
     this.broadcast = null;
     this.feedState = null;
-    this.playlistState = chosenReels.length ? { current: 1, total: chosenReels.length,
+    this.sourceMode = settings.sourceMode;
+    this.playlistState = directUrls.length ? { current: null, total: directUrls.length,
+      loop: settings.playlistLoop, reelUrl: null } : chosenReels.length ? { current: 1, total: chosenReels.length,
       loop: settings.playlistLoop, reelUrl: chosenReels[0].reelUrl } : null;
     try {
-      this.controller = this.makeController({ port: Number(this.env.INSTAGRAM_CDP_PORT || 9222), scroll: settings.scroll,
-        mobileLayout: settings.mobileLayout, captureWidth: settings.captureWidth, captureHeight: settings.captureHeight,
-        playlistUrls: chosenReels.map((item) => item.reelUrl), playlistLoop: settings.playlistLoop,
-        onPlaylistPosition: (index) => {
-          this.playlistState = { current: index + 1, total: chosenReels.length,
-            loop: settings.playlistLoop, reelUrl: chosenReels[index].reelUrl };
-        },
-        onPlaylistEnd: () => {
-          this.appendLog('Selected Reels playlist finished. Ending the encoder.');
-          this.stop().catch(() => {});
-        },
-        onState: (state) => { this.feedState = state; },
-        onError: (error) => { this.fail(error instanceof Error ? error.message : 'Instagram controller stopped'); },
-      });
-      const browserState = await this.controller.connect();
+      let browserState = null;
+      if (!directUrls.length) {
+        this.controller = this.makeController({ port: Number(this.env.INSTAGRAM_CDP_PORT || 9222), scroll: settings.scroll,
+          mobileLayout: settings.mobileLayout, captureWidth: settings.captureWidth, captureHeight: settings.captureHeight,
+          playlistUrls: chosenReels.map((item) => item.reelUrl), playlistLoop: settings.playlistLoop,
+          onPlaylistPosition: (index) => {
+            this.playlistState = { current: index + 1, total: chosenReels.length,
+              loop: settings.playlistLoop, reelUrl: chosenReels[index].reelUrl };
+          },
+          onPlaylistEnd: () => {
+            this.appendLog('Selected Reels playlist finished. Ending the encoder.');
+            this.stop().catch(() => {});
+          },
+          onState: (state) => { this.feedState = state; },
+          onError: (error) => { this.fail(error instanceof Error ? error.message : 'Instagram controller stopped'); },
+        });
+        browserState = await this.controller.connect();
+      }
       if (settings.createBroadcast) {
         const youtube = await this.studio.youtubeFor(id);
         if (!youtube.status().connected) throw new ChannelError('Connect this channel to YouTube in Channels first, or disable automatic broadcast creation');
         this.broadcast = await youtube.createBroadcast({ title: settings.title, description: settings.description, privacy: settings.privacy });
       }
-      const args = buildInstagramFfmpegArgs(settings, channel.ingestUrl, key,
-        this.env.INSTAGRAM_DISPLAY || ':1', browserState?.videoRect, browserState);
-      if (settings.audio === 'pulse') {
+      let args;
+      if (directUrls.length) {
+        this.mediaTempDir = await mkdtemp(join(tmpdir(), 'streamforge-direct-'));
+        const manifest = join(this.mediaTempDir, 'playlist.ffconcat');
+        await writeFile(manifest, directMediaManifest(directUrls), { mode: 0o600, flag: 'wx' });
+        args = buildDirectMediaFfmpegArgs(settings, channel.ingestUrl, key, manifest, IPHONE_FRAME);
+      } else {
+        args = buildInstagramFfmpegArgs(settings, channel.ingestUrl, key,
+          this.env.INSTAGRAM_DISPLAY || ':1', browserState?.videoRect, browserState);
+      }
+      if (!directUrls.length && settings.audio === 'pulse') {
         this.audioProcess = this.spawnProcess('parec', ['--device=@DEFAULT_MONITOR@', '--format=s16le', '--rate=44100', '--channels=2'],
           { stdio: ['ignore', 'pipe', 'pipe'] });
         this.audioProcess.once('error', (error) => this.fail('PulseAudio monitor not available: ' + error.message));
       }
-      const child = this.spawnProcess('ffmpeg', args, { stdio: [settings.audio === 'pulse' ? 'pipe' : 'ignore', 'ignore', 'pipe'] });
+      const child = this.spawnProcess('ffmpeg', args, { stdio: [this.audioProcess ? 'pipe' : 'ignore', 'ignore', 'pipe'] });
       this.process = child;
       if (this.audioProcess) {
         this.audioProcess.stdout?.pipe(child.stdin);
@@ -255,19 +276,26 @@ export class InstagramLiveManager {
         this.audioProcess = null;
         this.controller?.stop().catch(() => {});
         this.controller = null;
+        this.cleanupMediaManifest().catch(() => {});
         this.activeChannelId = null;
-        this.error ||= `FFmpeg exited${code === null ? '' : ` (code ${code})`}. Check capture size and RTMPS connection.`;
+        if (code === 0 && directUrls.length && !settings.playlistLoop) this.appendLog('Direct MP4 playlist completed.');
+        else this.error ||= `FFmpeg exited${code === null ? '' : ` (code ${code})`}. Check media URLs and RTMPS connection.`;
+        this.sourceMode = null;
+        this.startedAt = null;
+        this.playlistState = null;
       });
       await new Promise((resolve, reject) => {
         child.once('spawn', resolve);
         child.once('error', reject);
       });
       this.startedAt = new Date().toISOString();
-      this.appendLog(settings.mobileLayout
+      this.appendLog(directUrls.length
+        ? `Direct MP4 playlist started: ${directUrls.length} clip(s), ${settings.playlistLoop ? 'looping' : 'play once'}. VNC/Chrome is NOT the video source; MP4 audio is used when present.`
+        : settings.mobileLayout
         ? `${settings.frame === 'iphone' ? 'iPhone frame around the playing Reel' : 'Mobile screen capture'}; CSS viewport: ${browserState?.viewportWidth ?? '?'}x${browserState?.viewportHeight ?? '?'}; X11 capture: ${settings.captureWidth}x${settings.captureHeight}. Check YouTube Studio.`
         : 'Desktop screen capture started. Reels will scroll after playback ends.');
       if (chosenReels.length) this.appendLog(`Selected Reels playlist: ${chosenReels.length} video(s), ${settings.playlistLoop ? 'looping' : 'play once'}.`);
-      this.controller.run().catch((error) => this.fail(error.message));
+      this.controller?.run().catch((error) => this.fail(error.message));
       return this.getStatus();
     } catch (error) {
       await this.stop();
@@ -279,6 +307,12 @@ export class InstagramLiveManager {
     this.error = message;
     this.appendLog(message);
     this.stop().catch(() => {});
+  }
+
+  async cleanupMediaManifest() {
+    const dir = this.mediaTempDir;
+    this.mediaTempDir = null;
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 
   async stop() {
@@ -293,7 +327,9 @@ export class InstagramLiveManager {
     this.startedAt = null;
     this.feedState = null;
     this.playlistState = null;
+    this.sourceMode = null;
     await watcher?.stop();
+    await this.cleanupMediaManifest();
     return this.getStatus();
   }
 
@@ -301,6 +337,7 @@ export class InstagramLiveManager {
     this.process?.kill('SIGTERM');
     this.audioProcess?.kill('SIGTERM');
     this.controller?.stop().catch(() => {});
+    this.cleanupMediaManifest().catch(() => {});
   }
 }
 
@@ -327,7 +364,7 @@ export function registerInstagramLiveRoutes(app, { manager, localOnly }) {
   app.delete('/api/instagram-live/:id/playlist/:itemId', async (req, res) => res.json({ items: await manager.playlist.remove(req.params.id, req.params.itemId) }));
   app.get('/api/instagram-live/:id', async (req, res) => res.json(await manager.getSettings(req.params.id)));
   app.put('/api/instagram-live/:id', async (req, res) => res.json(await manager.saveSettings(req.params.id, req.body)));
-  app.post('/api/instagram-live/:id/start', async (req, res) => res.status(202).json(await manager.start(req.params.id, req.body?.rightsConfirmed)));
+  app.post('/api/instagram-live/:id/start', async (req, res) => res.status(202).json(await manager.start(req.params.id, req.body?.rightsConfirmed, req.body?.mediaUrls)));
   app.post('/api/instagram-live/:id/stop', async (req, res) => {
     if (manager.activeChannelId && manager.activeChannelId !== req.params.id) throw new ChannelError('Another Instagram channel owns the current live feed', 409);
     res.json(await manager.stop());
