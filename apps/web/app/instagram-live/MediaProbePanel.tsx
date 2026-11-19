@@ -113,7 +113,7 @@ export default function MediaProbePanel({ request }: { request: ApiRequest }) {
           <span>Audio: {result.audio ? `${result.audio.codec}, ${result.audio.channels ?? '?'} channel(s)` : 'No audio track (silent audio will be needed)'}</span>
         </div>
       </div>}
-      <p className="il-hint">If the terminal works but this probe returns 404, use Copy exact selected URL and test that same URL in the terminal with <code>ffprobe -max_redirects 0</code>. The app intentionally blocks HTTP redirects to keep this private URL probe restricted. Only HTTPS Instagram/Meta CDN MP4 links are accepted. Signed video URLs can expire; imports stay in browser memory and are not saved to Git or MySQL. Stream only content you have permission to rebroadcast.</p>
+      <p className="il-hint">If the terminal works but this probe returns 404, use Copy exact selected URL and test that same URL using a normal <code>ffprobe</code> command. The probe now uses the same supported options as the Codespaces FFprobe installation. Only HTTPS Instagram/Meta CDN MP4 links are accepted initially; signed video URLs may expire or redirect. Imports stay in browser memory and are not saved to Git or MySQL. Stream only content you have permission to rebroadcast.</p>
     </section>
   );
 }

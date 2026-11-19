@@ -149,9 +149,10 @@ script (`directVideoUrls` array).
 - **Test 4s encoding** also asks FFmpeg to decode and encode four seconds using
   a 540 × 960 portrait output, H.264 and AAC when audio exists. It discards
   the encoded output. **It does not broadcast to YouTube or save a video.**
-- The API is restricted to private loopback mode and accepts only direct HTTPS
-  `.mp4` links on Instagram/Meta CDN hosts. Redirects are disabled; arbitrary
-  remote and internal URLs are rejected. One probe at a time is allowed.
+- The API is restricted to private loopback mode and accepts only initial direct
+  HTTPS `.mp4` links on Instagram/Meta CDN hosts; all other submitted hostnames
+  are rejected. FFmpeg may follow server-side HTTPS redirects after that initial
+  validation, so this endpoint must remain private. One probe at a time is allowed.
 - Signed URLs may expire or work in a browser but not from the Codespaces
   server. Errors are sanitized so media link query strings are never logged.
 - Imported links stay only in browser memory; the API does not permanently
@@ -165,22 +166,18 @@ test. `read -s` keeps the signed URL out of the visible terminal and history:
 ```bash
 read -r -s -p 'Paste selected MP4 URL: ' sf_selected_url
 printf '\n'
-ffprobe -v error -max_redirects 0 \
-  -show_entries stream=codec_name,codec_type,width,height,avg_frame_rate \
-  -show_entries format=duration -of json "$sf_selected_url"
-# Only if the command above fails, compare with FFmpeg's default redirects:
 ffprobe -v error \
   -show_entries stream=codec_name,codec_type,width,height,avg_frame_rate \
   -show_entries format=duration -of json "$sf_selected_url"
 unset sf_selected_url
 ```
 
-If **both** fail, the imported URL is no longer accessible; export a fresh
-Instagram URL. If only the no-redirect command fails, the CDN is redirecting;
-the private API intentionally blocks redirects for safety. If **both** succeed,
-verify that the dashboard and terminal are on the same Codespace and that the
-server was restarted after pulling. Do not post signed URL query strings in
-screenshots, issues or chat.
+The `-max_redirects` option is intentionally **not** used because some
+Codespaces FFprobe builds reject it with `Option not found`. If the exact
+selected URL works in the command above, verify that the dashboard and terminal
+are on the same Codespace and restart the StreamForge API after pulling. If it
+returns 404, export a fresh Instagram URL. Never post signed URL query strings
+in screenshots, issues or chat.
 
 After pulling and restarting, test **three distinct clips** (with audio,
 without audio, and a portrait/landscape variation). Share the test results

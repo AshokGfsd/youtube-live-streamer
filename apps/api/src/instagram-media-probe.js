@@ -25,8 +25,8 @@ export function validateInstagramMediaUrl(input) {
 function mediaFailure(error, action) {
   // Never expose signed CDN query strings in API errors or console logs.
   const message = String(error?.stderr || '');
-  if (/\b403\b|forbidden/i.test(message)) return new ChannelError(`${action} denied (403). The video link may be expired or restricted.`, 422);
-  if (/\b404\b|not found/i.test(message)) return new ChannelError(`${action} returned 404 for this exact signed URL. The JSON link may have expired or its query differs from your working terminal URL. Paste the fresh working URL and retry.`, 422);
+  if (/HTTP error 403\b|403 Forbidden|Server returned 403/i.test(message)) return new ChannelError(`${action} denied (403). The video link may be expired or restricted.`, 422);
+  if (/HTTP error 404\b|404 Not Found|Server returned 404/i.test(message)) return new ChannelError(`${action} returned 404 for this exact signed URL. The JSON link may have expired or its query differs from your working terminal URL. Paste the fresh working URL and retry.`, 422);
   if (error?.killed || error?.signal === 'SIGTERM') return new ChannelError(`${action} timed out. Check the Codespaces network.`, 422);
   return new ChannelError(`${action} failed. Verify this video is accessible from the Codespaces server.`, 422);
 }
@@ -53,7 +53,7 @@ export class InstagramMediaProber {
       let output;
       try {
         const result = await this.run('ffprobe', [
-          '-v', 'error', '-max_redirects', '0',
+          '-v', 'error',
           '-show_entries', 'format=duration,format_name:stream=codec_type,codec_name,width,height,channels,sample_rate,avg_frame_rate',
           '-of', 'json', url,
         ], { timeout: 16000, maxBuffer: 256 * 1024 });
@@ -68,7 +68,7 @@ export class InstagramMediaProber {
       if (decode) {
         try {
           await this.run('ffmpeg', [
-            '-hide_banner', '-nostdin', '-v', 'error', '-max_redirects', '0', '-i', url,
+            '-hide_banner', '-nostdin', '-v', 'error', '-i', url,
             '-t', '4', '-map', '0:v:0', '-map', '0:a?',
             '-vf', 'scale=540:960:force_original_aspect_ratio=decrease,pad=540:960:(ow-iw)/2:(oh-ih)/2,format=yuv420p',
             '-c:v', 'libx264', '-preset', 'ultrafast', '-r', '15', '-c:a', 'aac', '-b:a', '96k',

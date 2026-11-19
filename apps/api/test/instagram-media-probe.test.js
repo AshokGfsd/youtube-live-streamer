@@ -45,8 +45,9 @@ test('private media probe tests decoding and encoding without exposing signed UR
   assert.equal(calls[0].command, 'ffprobe');
   assert.ok(calls[0].args.includes(URL));
   assert.ok(calls[0].args.join(' ').includes('avg_frame_rate'));
-  assert.deepEqual(calls[0].args.slice(2, 4), ['-max_redirects', '0']);
+  assert.ok(!calls[0].args.includes('-max_redirects'), 'use the Codespaces-compatible FFprobe CLI');
   assert.equal(calls[1].command, 'ffmpeg');
+  assert.ok(!calls[1].args.includes('-max_redirects'), 'use the Codespaces-compatible FFmpeg CLI');
   assert.ok(calls[1].args.includes('libx264'));
   assert.ok(!JSON.stringify(result).includes('PRIVATE-SIGNED-TOKEN'));
 });
@@ -82,6 +83,19 @@ test('FFprobe reports a sanitized 404 and requires a fresh signed URL', async ()
     assert.match(error.message, /404.*signed URL/);
     assert.match(error.message, /fresh working URL/);
     assert.doesNotMatch(error.message, /TOKEN/);
+    return true;
+  });
+});
+
+test('does not mistake unsupported options for HTTP 404 based on a signed URL', async () => {
+  const broken = new InstagramMediaProber({ run: async () => {
+    const error = new Error('Failed');
+    error.stderr = 'https://a.fbcdn.net/clip404.mp4?token=SECRET: Failed to set value 0 for option max_redirects: Option not found';
+    throw error;
+  } });
+  await assert.rejects(() => broken.probe(URL), (error) => {
+    assert.doesNotMatch(error.message, /returned 404|SECRET|max_redirects/);
+    assert.match(error.message, /FFprobe failed/);
     return true;
   });
 });
