@@ -26,9 +26,16 @@ function mediaFailure(error, action) {
   // Never expose signed CDN query strings in API errors or console logs.
   const message = String(error?.stderr || '');
   if (/\b403\b|forbidden/i.test(message)) return new ChannelError(`${action} denied (403). The video link may be expired or restricted.`, 422);
-  if (/\b404\b|not found/i.test(message)) return new ChannelError(`${action} returned 404. Try extracting a fresh URL.`, 422);
+  if (/\b404\b|not found/i.test(message)) return new ChannelError(`${action} returned 404 for this exact signed URL. The JSON link may have expired or its query differs from your working terminal URL. Paste the fresh working URL and retry.`, 422);
   if (error?.killed || error?.signal === 'SIGTERM') return new ChannelError(`${action} timed out. Check the Codespaces network.`, 422);
   return new ChannelError(`${action} failed. Verify this video is accessible from the Codespaces server.`, 422);
+}
+
+function frameRate(value) {
+  if (typeof value !== 'string') return null;
+  const [numerator, denominator = '1'] = value.split('/').map(Number);
+  const fps = numerator / denominator;
+  return Number.isFinite(fps) && fps > 0 ? Math.round(fps * 100) / 100 : null;
 }
 
 export class InstagramMediaProber {
@@ -47,7 +54,7 @@ export class InstagramMediaProber {
       try {
         const result = await this.run('ffprobe', [
           '-v', 'error', '-max_redirects', '0',
-          '-show_entries', 'format=duration,format_name:stream=codec_type,codec_name,width,height,channels,sample_rate',
+          '-show_entries', 'format=duration,format_name:stream=codec_type,codec_name,width,height,channels,sample_rate,avg_frame_rate',
           '-of', 'json', url,
         ], { timeout: 16000, maxBuffer: 256 * 1024 });
         output = JSON.parse(result.stdout);
@@ -75,7 +82,7 @@ export class InstagramMediaProber {
         reachable: true,
         encoded: decode,
         video: { codec: String(video.codec_name || 'unknown'), width: Number(video.width) || null,
-          height: Number(video.height) || null },
+          height: Number(video.height) || null, fps: frameRate(video.avg_frame_rate) },
         audio: audio ? { codec: String(audio.codec_name || 'unknown'), channels: Number(audio.channels) || null,
           sampleRate: Number(audio.sample_rate) || null } : null,
         durationSeconds: Number.isFinite(duration) && duration > 0 ? Math.round(duration * 100) / 100 : null,

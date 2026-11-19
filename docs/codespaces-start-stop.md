@@ -145,7 +145,7 @@ video, or import the JSON downloaded by the browser's `sfCollector.download()`
 script (`directVideoUrls` array).
 
 - **Check media** invokes `ffprobe` on the Codespaces host and reports codec,
-  dimensions, duration and whether an audio stream exists.
+  dimensions, FPS, duration and whether an audio stream exists.
 - **Test 4s encoding** also asks FFmpeg to decode and encode four seconds using
   a 540 × 960 portrait output, H.264 and AAC when audio exists. It discards
   the encoded output. **It does not broadcast to YouTube or save a video.**
@@ -156,6 +156,31 @@ script (`directVideoUrls` array).
   server. Errors are sanitized so media link query strings are never logged.
 - Imported links stay only in browser memory; the API does not permanently
   store them in MySQL. Refreshing the dashboard clears the import.
+
+If a URL works in your terminal but the imported JSON selection returns
+**404**, use **Copy exact selected URL** on the dashboard (do not re-copy a
+different link from Instagram). Paste it into this private Codespaces terminal
+test. `read -s` keeps the signed URL out of the visible terminal and history:
+
+```bash
+read -r -s -p 'Paste selected MP4 URL: ' sf_selected_url
+printf '\n'
+ffprobe -v error -max_redirects 0 \
+  -show_entries stream=codec_name,codec_type,width,height,avg_frame_rate \
+  -show_entries format=duration -of json "$sf_selected_url"
+# Only if the command above fails, compare with FFmpeg's default redirects:
+ffprobe -v error \
+  -show_entries stream=codec_name,codec_type,width,height,avg_frame_rate \
+  -show_entries format=duration -of json "$sf_selected_url"
+unset sf_selected_url
+```
+
+If **both** fail, the imported URL is no longer accessible; export a fresh
+Instagram URL. If only the no-redirect command fails, the CDN is redirecting;
+the private API intentionally blocks redirects for safety. If **both** succeed,
+verify that the dashboard and terminal are on the same Codespace and that the
+server was restarted after pulling. Do not post signed URL query strings in
+screenshots, issues or chat.
 
 After pulling and restarting, test **three distinct clips** (with audio,
 without audio, and a portrait/landscape variation). Share the test results

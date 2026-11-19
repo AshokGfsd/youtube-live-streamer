@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle2, CircleAlert, FlaskConical, Link2, LoaderCircle, Upload, Video } from 'lucide-react';
+import { CheckCircle2, CircleAlert, Copy, FlaskConical, Link2, LoaderCircle, Upload, Video } from 'lucide-react';
 
 type ProbeResult = {
   reachable: boolean;
   encoded: boolean;
-  video: { codec: string; width: number | null; height: number | null };
+  video: { codec: string; width: number | null; height: number | null; fps: number | null };
   audio: { codec: string; channels: number | null; sampleRate: number | null } | null;
   durationSeconds: number | null;
 };
@@ -23,13 +23,15 @@ function safeUrlLabel(value: string) {
 export default function MediaProbePanel({ request }: { request: ApiRequest }) {
   const [url, setUrl] = useState('');
   const [imported, setImported] = useState<string[]>([]);
+  const [importWarning, setImportWarning] = useState('');
+  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ProbeResult | null>(null);
   const [error, setError] = useState('');
 
   async function importJson(file: File | undefined) {
     if (!file) return;
-    setError(''); setResult(null);
+    setError(''); setResult(null); setImportWarning(''); setCopied(false);
     try {
       if (file.size > 2_000_000) throw new Error('JSON file is too large (limit 2 MB).');
       const data: unknown = JSON.parse(await file.text());
@@ -44,6 +46,10 @@ export default function MediaProbePanel({ request }: { request: ApiRequest }) {
       if (!links.length) throw new Error('No direct video URLs found. Export sfCollector.results() as JSON.');
       setImported(links);
       setUrl(links[0]);
+      const exportedAt = typeof record.exportedAt === 'string' ? Date.parse(record.exportedAt) : NaN;
+      if (Number.isFinite(exportedAt) && Date.now() - exportedAt > 30 * 60_000) {
+        setImportWarning('This JSON was exported over 30 minutes ago. Instagram signed MP4 links can expire. If you see 404, paste a newly copied video URL.');
+      }
     } catch (cause) { setImported([]); setError((cause as Error).message); }
   }
 
@@ -55,7 +61,7 @@ export default function MediaProbePanel({ request }: { request: ApiRequest }) {
         method: 'POST', body: JSON.stringify({ url: url.trim(), decode }),
       });
       setResult(response);
-    } catch (cause) { setError((cause as Error).message); }
+      } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }
 
@@ -71,7 +77,7 @@ export default function MediaProbePanel({ request }: { request: ApiRequest }) {
           <div className="il-url-input"><Link2 size={17}/>
             <input id="il-media-url" type="url" autoComplete="off" spellCheck={false}
               placeholder="https://instagram...fbcdn.net/...mp4?..." value={url}
-              onChange={(event) => { setUrl(event.target.value); setResult(null); setError(''); }} disabled={busy}/>
+              onChange={(event) => { setUrl(event.target.value); setResult(null); setError(''); setCopied(false); }} disabled={busy}/>
           </div>
         </div>
         <label className="il-probe-upload"><Upload size={17}/><span>Import collector JSON</span>
@@ -81,11 +87,16 @@ export default function MediaProbePanel({ request }: { request: ApiRequest }) {
         </label>
         {imported.length > 0 && <div><label className="il-label" htmlFor="il-imported-video">IMPORTED DIRECT URLS · {imported.length}</label>
           <select id="il-imported-video" value={imported.includes(url) ? url : ''} disabled={busy}
-            onChange={(event) => { setUrl(event.target.value); setResult(null); }}>
+            onChange={(event) => { setUrl(event.target.value); setResult(null); setError(''); setCopied(false); }}>
             <option value="">Choose a collected video</option>
             {imported.map((item, index) => <option key={index} value={item}>{index + 1}. {safeUrlLabel(item)}</option>)}
           </select>
         </div>}
+        {importWarning && <p className="il-hint" role="status">{importWarning}</p>}
+        {url && <button type="button" className="il-media-copy" disabled={busy} onClick={async () => {
+          try { await navigator.clipboard.writeText(url); setCopied(true); }
+          catch { setError('Could not copy the link. Select the URL in the field and copy it manually.'); }
+        }}><Copy size={15}/>{copied ? 'Exact signed URL copied' : 'Copy exact selected URL for terminal comparison'}</button>}
       </div>
       <div className="il-playlist-actions il-probe-actions">
         <button type="button" className="il-secondary-btn" disabled={busy || !url.trim()} onClick={() => probe(false)}>
@@ -98,11 +109,11 @@ export default function MediaProbePanel({ request }: { request: ApiRequest }) {
       {error && <p className="il-probe-result il-probe-fail" role="alert"><CircleAlert size={17}/>{error}</p>}
       {result && <div className="il-probe-result il-probe-success" role="status">
         <CheckCircle2 size={19}/><div><b>{result.encoded ? 'Direct FFmpeg encoding worked!' : 'FFprobe can read this media!'}</b>
-          <span>Video: {result.video.codec} · {result.video.width || '?'}×{result.video.height || '?'} · {result.durationSeconds ?? '?'}s</span>
+          <span>Video: {result.video.codec} · {result.video.width || '?'}×{result.video.height || '?'} · {result.video.fps ?? '?'} FPS · {result.durationSeconds ?? '?'}s</span>
           <span>Audio: {result.audio ? `${result.audio.codec}, ${result.audio.channels ?? '?'} channel(s)` : 'No audio track (silent audio will be needed)'}</span>
         </div>
       </div>}
-      <p className="il-hint">Only HTTPS Instagram/Meta CDN MP4 links are accepted. Signed video URLs can expire; imports stay in browser memory and are not saved to Git or MySQL. This test makes no YouTube broadcast and no permanent video copy. Stream only content you have permission to rebroadcast.</p>
+      <p className="il-hint">If the terminal works but this probe returns 404, use Copy exact selected URL and test that same URL in the terminal with <code>ffprobe -max_redirects 0</code>. The app intentionally blocks HTTP redirects to keep this private URL probe restricted. Only HTTPS Instagram/Meta CDN MP4 links are accepted. Signed video URLs can expire; imports stay in browser memory and are not saved to Git or MySQL. Stream only content you have permission to rebroadcast.</p>
     </section>
   );
 }
