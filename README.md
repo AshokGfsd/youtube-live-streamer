@@ -1,9 +1,14 @@
 # StreamForge — Your YouTube cloud livestream studio
 
-> **Experimental Android Instagram Reels auto-scroll proof of concept:**
-> See [the Phase 1 testing guide](docs/instagram-reels-android-prototype.md).
-> This tests a manually logged-in Chromium browser and synthetic feed;
-> Instagram-to-YouTube livestreaming is **not** implemented or verified yet.
+> **Google Cloud VM trial (no Termux):** See the separate
+> [`feature/google-cloud-free-trial` guide](docs/google-cloud-free-trial-reels-live.md).
+> Google Cloud Shell is not a persistent livestream server; this experiment
+> requires a separate VM and does not provision billable resources.
+
+> **Experimental Instagram Reels auto-scroll livestream:**
+> See [the Android testing guide](docs/instagram-reels-android-prototype.md).
+> The browser controller and FFmpeg YouTube Live integration are implemented;
+> the actual phone/VM video and audio ingest still needs device testing.
 
 ## Multi-channel studio (new)
 
