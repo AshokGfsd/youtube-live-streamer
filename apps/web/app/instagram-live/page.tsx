@@ -8,6 +8,7 @@ import {
   RefreshCw, Save, Search, Settings2, ShieldCheck, Square, Terminal, Trash2, Tv2, VolumeX, WandSparkles,
 } from 'lucide-react';
 import './instagram-live.css';
+import MediaProbePanel from './MediaProbePanel';
 
 type Channel = { id: string; displayName: string; handle: string; ready: boolean; hasStreamKey: boolean; youtubeConnected: boolean };
 type Settings = {
@@ -259,6 +260,8 @@ export default function InstagramLivePage() {
                   <p className="il-hint">Only save Reels you have permission to rebroadcast. Instagram may block autoplay, remove content or require a fresh login; verify playback in noVNC.</p>
                 </div> : <p className="il-hint">Select a channel first to manage its playlist.</p>}
               </section>
+
+              <MediaProbePanel request={request}/>
 
               <section className="il-panel"><div className="il-panel-head"><div className="il-panel-icon il-purple"><Settings2 size={20}/></div><div><p>STEP 04</p><h2>Broadcast settings</h2><span>Changes automatically save to your MySQL channel profile.</span></div><div className="il-save-state">{saveState === 'saving' ? <><LoaderCircle size={14} className="il-spin"/> Saving</> : saveState === 'saved' ? <><Check size={14}/> Saved</> : <><Save size={14}/> Draft</>}</div></div>
                 {settings ? <div className="il-fields"><div><label className="il-label" htmlFor="il-title">LIVE TITLE</label><input id="il-title" placeholder="e.g. Reels discovery live" maxLength={100} value={settings.title} onChange={(event) => update('title', event.target.value)}/></div><div><label className="il-label" htmlFor="il-desc">DESCRIPTION</label><textarea id="il-desc" rows={3} placeholder="Describe your livestream..." value={settings.description} onChange={(event) => update('description', event.target.value)}/></div>

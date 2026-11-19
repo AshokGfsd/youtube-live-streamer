@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { ChannelError } from './channel-store.js';
 import { InstagramReelsController, findInstagramTab } from './instagram-cdp.js';
 import { InstagramPlaylistStore, normalizeReelUrl } from './instagram-playlist.js';
+import { InstagramMediaProber } from './instagram-media-probe.js';
 
 const IPHONE_FRAME = fileURLToPath(new URL('./assets/iphone-frame.svg', import.meta.url));
 
@@ -117,6 +118,7 @@ export class InstagramLiveManager {
   constructor({ store, studio, env = process.env, spawnProcess = spawn, makeController = (options) => new InstagramReelsController(options) }) {
     this.store = store;
     this.playlist = new InstagramPlaylistStore(store);
+    this.mediaProber = new InstagramMediaProber();
     this.studio = studio;
     this.env = env;
     this.spawnProcess = spawnProcess;
@@ -312,6 +314,9 @@ export function registerInstagramLiveRoutes(app, { manager, localOnly }) {
   app.get('/api/instagram-live/status', (_req, res) => res.json(manager.getStatus()));
   app.get('/api/instagram-live/browser', async (_req, res) => res.json(await manager.browserStatus()));
   app.get('/api/instagram-live/browser/current', async (_req, res) => res.json(await manager.currentReel()));
+  app.post('/api/instagram-live/media/probe', async (req, res) => res.json(
+    await manager.mediaProber.probe(req.body?.url, { decode: req.body?.decode ?? false })
+  ));
   app.get('/api/instagram-live/:id/playlist', async (req, res) => res.json({ items: await manager.playlist.list(req.params.id) }));
   app.post('/api/instagram-live/:id/playlist', async (req, res) => res.status(201).json({ items: await manager.playlist.add(req.params.id, req.body) }));
   app.post('/api/instagram-live/:id/playlist/current', async (req, res) => {

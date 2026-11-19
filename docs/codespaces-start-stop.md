@@ -136,3 +136,28 @@ git pull --ff-only origin feature/google-cloud-free-trial
 bash stop-all.sh
 bash start-all.sh
 ```
+
+## Direct MP4 → FFmpeg feasibility (Experiment 01)
+
+The Instagram Reels Live page now has an **Experiment 01** card below the
+selected-Reels playlist. Paste a direct `.mp4` URL extracted from an Instagram
+video, or import the JSON downloaded by the browser's `sfCollector.download()`
+script (`directVideoUrls` array).
+
+- **Check media** invokes `ffprobe` on the Codespaces host and reports codec,
+  dimensions, duration and whether an audio stream exists.
+- **Test 4s encoding** also asks FFmpeg to decode and encode four seconds using
+  a 540 × 960 portrait output, H.264 and AAC when audio exists. It discards
+  the encoded output. **It does not broadcast to YouTube or save a video.**
+- The API is restricted to private loopback mode and accepts only direct HTTPS
+  `.mp4` links on Instagram/Meta CDN hosts. Redirects are disabled; arbitrary
+  remote and internal URLs are rejected. One probe at a time is allowed.
+- Signed URLs may expire or work in a browser but not from the Codespaces
+  server. Errors are sanitized so media link query strings are never logged.
+- Imported links stay only in browser memory; the API does not permanently
+  store them in MySQL. Refreshing the dashboard clears the import.
+
+After pulling and restarting, test **three distinct clips** (with audio,
+without audio, and a portrait/landscape variation). Share the test results
+before selecting the Phase 2 continuous-media playlist implementation.
+Only use sources you own or have permission to rebroadcast.
