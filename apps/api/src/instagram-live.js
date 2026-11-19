@@ -1,10 +1,13 @@
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { ChannelError } from './channel-store.js';
 import { InstagramReelsController, findInstagramTab } from './instagram-cdp.js';
 
+const IPHONE_FRAME = fileURLToPath(new URL('./assets/iphone-frame.svg', import.meta.url));
+
 const DEFAULTS = Object.freeze({
   title: '', description: '', privacy: 'private', scroll: 'wheel',
-  mobileLayout: true,
+  mobileLayout: true, frame: 'iphone',
   captureWidth: 540, captureHeight: 960, captureX: 0, captureY: 0,
   fps: 15, bitrateKbps: 1200, audio: 'silent', createBroadcast: false,
 });
@@ -25,6 +28,7 @@ export function validateInstagramSettings(payload) {
   if (!['private', 'unlisted', 'public'].includes(input.privacy)) throw new ChannelError('Invalid YouTube privacy');
   if (!['wheel', 'arrow'].includes(input.scroll)) throw new ChannelError('Scroll mode must be wheel or arrow');
   if (typeof input.mobileLayout !== 'boolean') throw new ChannelError('Invalid mobile Reels layout setting');
+  if (!['iphone', 'none'].includes(input.frame)) throw new ChannelError('Invalid live video frame setting');
   if (!['silent', 'pulse'].includes(input.audio)) throw new ChannelError('Audio must be silent or PulseAudio monitor');
   if (typeof input.createBroadcast !== 'boolean') throw new ChannelError('Invalid automatic broadcast setting');
   for (const field of ['captureWidth', 'captureHeight']) intInRange(input[field], field, 240, 1920);
@@ -39,8 +43,29 @@ export function validateInstagramSettings(payload) {
   return Object.fromEntries(Object.keys(DEFAULTS).map((key) => [key, input[key]]));
 }
 
-export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display = ':1') {
+// The browser displays a 360x640 CSS page in the top-left of a 540x960 X11
+// desktop. Crop the *playing video element*, not the surrounding white page.
+// The Instagram watcher measures the same video on each auto-scroll cycle.
+export function reelCaptureCrop(rect, { captureWidth, captureHeight }) {
+  if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)) {
+    throw new ChannelError('Playing Reel bounds unavailable; play a Reel before starting the iPhone layout');
+  }
+  const left = Math.max(0, Math.floor(rect.x / 2) * 2);
+  const top = Math.max(0, Math.floor(rect.y / 2) * 2);
+  const right = Math.min(captureWidth, Math.floor((rect.x + rect.width) / 2) * 2);
+  const bottom = Math.min(captureHeight, Math.floor((rect.y + rect.height) / 2) * 2);
+  const width = right - left;
+  const height = bottom - top;
+  if (width < 100 || height < 150 || left + width > captureWidth || top + height > captureHeight) {
+    throw new ChannelError('The playing Reel is outside the X11 capture area. Check kiosk positioning and resolution.');
+  }
+  return { x: left, y: top, width, height };
+}
+
+export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display = ':1', videoRect = null) {
   const config = validateInstagramSettings(settings);
+  const phoneFrame = config.mobileLayout && config.frame === 'iphone';
+  const crop = phoneFrame ? reelCaptureCrop(videoRect, config) : null;
   // Ingest URL and stream key have already been validated by ChannelStore.
   const args = ['-hide_banner', '-nostdin', '-loglevel', 'warning',
     '-thread_queue_size', '512', '-f', 'x11grab', '-draw_mouse', '0',
@@ -49,7 +74,23 @@ export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display
     '-thread_queue_size', '512'];
   if (config.audio === 'pulse') args.push('-f', 's16le', '-ar', '44100', '-ac', '2', '-i', 'pipe:0');
   else args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
-  args.push('-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'ultrafast',
+  if (phoneFrame) {
+    // A transparent SVG phone frame is copied alongside the API source. The
+    // original X11 feed stays untouched; only the encoded stream is composed.
+    const videoWidth = Math.floor(config.captureWidth * 448 / 540 / 2) * 2;
+    const videoHeight = Math.floor(config.captureHeight * 796 / 960 / 2) * 2;
+    const videoX = Math.floor((config.captureWidth - videoWidth) / 2);
+    const videoY = Math.floor((config.captureHeight - videoHeight) / 2);
+    args.push('-loop', '1', '-framerate', String(config.fps), '-i', IPHONE_FRAME);
+    args.push('-filter_complex',
+      `[0:v]crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` +
+      `scale=${videoWidth}:${videoHeight}:force_original_aspect_ratio=increase:flags=lanczos,` +
+      `crop=${videoWidth}:${videoHeight},setsar=1,` +
+      `pad=${config.captureWidth}:${config.captureHeight}:${videoX}:${videoY}:color=black,format=rgba[reel];` +
+      `[2:v]scale=${config.captureWidth}:${config.captureHeight}:flags=bicubic,format=rgba[frame];` +
+      '[reel][frame]overlay=0:0:format=auto,format=yuv420p[composed]');
+  }
+  args.push('-map', phoneFrame ? '[composed]' : '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'ultrafast',
     '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-r', String(config.fps),
     '-g', String(config.fps * 2), '-b:v', `${config.bitrateKbps}k`,
     '-maxrate', `${config.bitrateKbps}k`, '-bufsize', `${config.bitrateKbps * 2}k`,
@@ -149,13 +190,14 @@ export class InstagramLiveManager {
         onState: (state) => { this.feedState = state; },
         onError: (error) => { this.fail(error instanceof Error ? error.message : 'Instagram controller stopped'); },
       });
-      await this.controller.connect();
+      const browserState = await this.controller.connect();
       if (settings.createBroadcast) {
         const youtube = await this.studio.youtubeFor(id);
         if (!youtube.status().connected) throw new ChannelError('Connect this channel to YouTube in Channels first, or disable automatic broadcast creation');
         this.broadcast = await youtube.createBroadcast({ title: settings.title, description: settings.description, privacy: settings.privacy });
       }
-      const args = buildInstagramFfmpegArgs(settings, channel.ingestUrl, key, this.env.INSTAGRAM_DISPLAY || ':1');
+      const args = buildInstagramFfmpegArgs(settings, channel.ingestUrl, key,
+        this.env.INSTAGRAM_DISPLAY || ':1', browserState?.videoRect);
       if (settings.audio === 'pulse') {
         this.audioProcess = this.spawnProcess('parec', ['--device=@DEFAULT_MONITOR@', '--format=s16le', '--rate=44100', '--channels=2'],
           { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -187,7 +229,7 @@ export class InstagramLiveManager {
       });
       this.startedAt = new Date().toISOString();
       this.appendLog(settings.mobileLayout
-        ? 'Portrait mobile viewport enabled. Check kiosk browser and X11 screen alignment in YouTube Studio.'
+        ? `${settings.frame === 'iphone' ? 'iPhone frame around the playing Reel' : 'Mobile screen capture'}; CSS viewport: ${browserState?.viewportWidth ?? '?'}x${browserState?.viewportHeight ?? '?'}; X11 capture: ${settings.captureWidth}x${settings.captureHeight}. Check YouTube Studio.`
         : 'Desktop screen capture started. Reels will scroll after playback ends.');
       this.controller.run().catch((error) => this.fail(error.message));
       return this.getStatus();

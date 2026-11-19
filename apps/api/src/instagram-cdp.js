@@ -41,16 +41,23 @@ export async function findInstagramTab(port = 9222) {
   return { socketUrl: `ws://127.0.0.1:${port}${socketUrl.pathname}${socketUrl.search}`, title: 'Instagram Reels' };
 }
 
-// Match the browser's responsive layout to the portrait X11 capture rectangle.
-// This changes only the existing Instagram tab's viewport; it does not copy
-// account data or alter the stored Chromium profile.
+// Keep the X11/FFmpeg capture at its full physical resolution, but give the
+// page a *phone-sized CSS viewport*. An unscaled 540px viewport makes
+// Instagram render its wider Reels layout, with actions outside the Reel and
+// neighbouring posts visible. At 540x960 physical pixels, a 360x640 CSS
+// viewport with DPR 1.5 fits the same capture rectangle exactly.
+// This only changes the existing tab's emulation settings, not login data.
 export function mobileReelsEmulation(width, height) {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 240 || height < 240 || width >= height) {
     throw new InstagramBrowserError('Mobile Reels needs a portrait capture size (width smaller than height)', 400);
   }
+  const cssWidth = Math.min(width, 360);
+  const deviceScaleFactor = width / cssWidth;
+  const cssHeight = Math.round(height / deviceScaleFactor);
   return [
     { method: 'Emulation.setDeviceMetricsOverride', params: {
-      width, height, deviceScaleFactor: 1, mobile: true,
+      width: cssWidth, height: cssHeight, deviceScaleFactor, mobile: true,
+      screenWidth: cssWidth, screenHeight: cssHeight,
     } },
     { method: 'Emulation.setTouchEmulationEnabled', params: { enabled: true, maxTouchPoints: 1 } },
   ];

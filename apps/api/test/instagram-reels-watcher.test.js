@@ -35,6 +35,9 @@ test('waits for completion, requests exactly one scroll, then arms for the next 
   const status = setup.host.__streamforgeReels.state;
 
   assert.equal(status.phase, 'playing');
+  assert.equal(status.videoRect.x, 0);
+  assert.equal(status.videoRect.width, 320);
+  assert.equal(status.videoRect.height, 600);
   assert.equal(status.scrollRequest, 0);
   first.currentTime = 7.8;
   setup.tick();
@@ -78,6 +81,7 @@ test('ignores paused, offscreen, and unloaded videos', () => {
   first.paused = false;
   setup.tick();
   assert.equal(status.phase, 'waiting');
+  assert.equal(status.videoRect, null);
   assert.equal(status.scrollRequest, 0);
 });
 

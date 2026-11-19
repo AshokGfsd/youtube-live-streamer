@@ -19,6 +19,9 @@ export function installReelsWatcher({ tickMs = 150, nearEndSeconds = 0.3 } = {})
     scrollReason: null,
     viewportWidth: host.innerWidth || 400,
     viewportHeight: host.innerHeight || 800,
+    // CSS pixel rectangle for the Reel currently playing. This lets FFmpeg
+    // capture just the video instead of empty Instagram web-page margins.
+    videoRect: null,
     error: null,
   };
   const identity = new WeakMap();
@@ -64,12 +67,18 @@ export function installReelsWatcher({ tickMs = 150, nearEndSeconds = 0.3 } = {})
       if (!video) {
         state.phase = 'waiting';
         state.activeId = null;
+        state.videoRect = null;
         state.currentTime = null;
         state.duration = null;
         return;
       }
 
       const id = identify(video);
+      const rect = video.getBoundingClientRect();
+      state.videoRect = {
+        x: Math.round(rect.left), y: Math.round(rect.top),
+        width: Math.round(rect.width), height: Math.round(rect.height),
+      };
       if (currentId !== id) {
         currentId = id;
         requestedFor = null;

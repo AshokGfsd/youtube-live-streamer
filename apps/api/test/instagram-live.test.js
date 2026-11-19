@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { InstagramLiveManager, buildInstagramFfmpegArgs, validateInstagramSettings } from '../src/instagram-live.js';
+import { InstagramLiveManager, buildInstagramFfmpegArgs, reelCaptureCrop, validateInstagramSettings } from '../src/instagram-live.js';
 
 test('validates capture dimensions, scroll method, and rights settings', () => {
   assert.equal(validateInstagramSettings({}).audio, 'silent');
   assert.equal(validateInstagramSettings({}).mobileLayout, true);
+  assert.equal(validateInstagramSettings({}).frame, 'iphone');
   assert.equal(validateInstagramSettings({ scroll: 'arrow', captureWidth: 320 }).scroll, 'arrow');
   assert.throws(() => validateInstagramSettings({ captureWidth: 321 }), /even numbers/);
   assert.throws(() => validateInstagramSettings({ privacy: 'unknown' }), /privacy/);
@@ -13,12 +14,13 @@ test('validates capture dimensions, scroll method, and rights settings', () => {
   assert.throws(() => validateInstagramSettings({ audio: 'microphone' }), /Audio/);
   assert.throws(() => validateInstagramSettings({ createBroadcast: 'false' }), /automatic broadcast/);
   assert.throws(() => validateInstagramSettings({ mobileLayout: 'yes' }), /mobile Reels layout/);
+  assert.throws(() => validateInstagramSettings({ frame: 'tablet' }), /video frame/);
   assert.throws(() => validateInstagramSettings({ captureWidth: 960, captureHeight: 540 }), /portrait capture/);
   assert.equal(validateInstagramSettings({ mobileLayout: false, captureWidth: 960, captureHeight: 540 }).mobileLayout, false);
 });
 
-test('FFmpeg captures X11 and outputs safe YouTube RTMPS with silent audio', () => {
-  const args = buildInstagramFfmpegArgs({ captureWidth: 540, captureHeight: 960, fps: 15, audio: 'silent' },
+test('FFmpeg raw mode preserves existing X11 capture and YouTube RTMPS behavior', () => {
+  const args = buildInstagramFfmpegArgs({ captureWidth: 540, captureHeight: 960, fps: 15, audio: 'silent', frame: 'none' },
     'rtmps://a.rtmps.youtube.com/live2', 'test-stream-key');
   assert.deepEqual(args.slice(args.indexOf('-video_size'), args.indexOf('-video_size') + 4),
     ['-video_size', '540x960', '-i', ':1.0+0,0']);
@@ -29,10 +31,29 @@ test('FFmpeg captures X11 and outputs safe YouTube RTMPS with silent audio', () 
 });
 
 test('PulseAudio input is passed as raw PCM through a local pipe', () => {
-  const args = buildInstagramFfmpegArgs({ audio: 'pulse', scroll: 'arrow' },
+  const args = buildInstagramFfmpegArgs({ audio: 'pulse', scroll: 'arrow', frame: 'none' },
     'rtmps://a.rtmps.youtube.com/live2', 'key', ':2');
   assert.ok(args.includes('pipe:0'));
   assert.equal(args[args.indexOf('-i') + 1], ':2.0+0,0');
+});
+
+test('phone compositing crops only the playing Reel and preserves audio input', () => {
+  const crop = reelCaptureCrop({ x: 32, y: 17, width: 223, height: 397 },
+    { captureWidth: 540, captureHeight: 960 });
+  assert.deepEqual(crop, { x: 32, y: 16, width: 222, height: 398 });
+  const args = buildInstagramFfmpegArgs({ audio: 'pulse' },
+    'rtmps://a.rtmps.youtube.com/live2', 'key', ':99', crop);
+  assert.ok(args.includes('pipe:0'));
+  assert.ok(args.includes('-filter_complex'));
+  assert.ok(args.includes('-loop'));
+  assert.ok(args.some((arg) => arg.endsWith('/assets/iphone-frame.svg')));
+  assert.match(args[args.indexOf('-filter_complex') + 1], /crop=222:398:32:16/);
+  assert.match(args[args.indexOf('-filter_complex') + 1], /pad=540:960:46:82/);
+  assert.equal(args[args.indexOf('-map') + 1], '[composed]');
+  assert.equal(args[args.indexOf('-map') + 3], '1:a:0');
+  assert.throws(() => buildInstagramFfmpegArgs({}, 'rtmps://host/live', 'key'), /bounds unavailable/);
+  assert.throws(() => reelCaptureCrop({ x: 538, y: 500, width: 100, height: 400 },
+    { captureWidth: 540, captureHeight: 960 }), /outside/);
 });
 
 test('start requires explicit rights and releases browser and FFmpeg on stop', async () => {
@@ -46,7 +67,8 @@ test('start requires explicit rights and releases browser and FFmpeg on stop', a
       getStreamKey: async () => 'private-stream-key',
     },
     studio: { runningCount: () => 0, maxStreams: 1 },
-    makeController: () => ({ connect: async () => ({ activeId: 1, phase: 'playing' }), run: async () => {},
+    makeController: () => ({ connect: async () => ({ activeId: 1, phase: 'playing', viewportWidth: 360, viewportHeight: 640,
+      videoRect: { x: 32, y: 17, width: 223, height: 397 } }), run: async () => {},
       stop: async () => { controllerStopped = true; } }),
     spawnProcess: (name, args) => {
       assert.equal(name, 'ffmpeg');
@@ -63,6 +85,7 @@ test('start requires explicit rights and releases browser and FFmpeg on stop', a
   assert.equal(live.running, true);
   assert.equal(live.activeChannelId, 'id');
   assert.equal(live.broadcast, null);
+  assert.ok(live.logs.some((line) => line.includes('iPhone frame around the playing Reel')));
   child.stderr.emit('data', 'Failed connection: rtmps://a.rtmps.youtube.com/live2/private-stream-key\n');
   assert.ok(!JSON.stringify(manager.getStatus()).includes('private-stream-key'));
   await manager.stop();
