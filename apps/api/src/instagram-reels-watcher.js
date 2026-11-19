@@ -29,6 +29,52 @@ export function installReelsWatcher({ tickMs = 150, nearEndSeconds = 0.3 } = {})
   let currentId = null;
   let requestedFor = null;
   let requestedAt = 0;
+  let lastCaptionCheckAt = 0;
+
+  // Instagram's desktop Reels UI sometimes squeezes a long account handle
+  // into a ~1-character-wide flex item at phone-sized CSS viewports. The
+  // handle then breaks vertically through the video. Only repair visibly
+  // collapsed username links inside the active Reel, leaving other page UI
+  // and normal captions untouched.
+  function fixCollapsedUsername(videoRect) {
+    if (Date.now() - lastCaptionCheckAt < 650) return;
+    lastCaptionCheckAt = Date.now();
+    for (const link of host.document.querySelectorAll('a[href]')) {
+      const handle = String(link.textContent || '').trim();
+      const href = String(link.getAttribute?.('href') || '').replace(/^https:\/\/(?:www\.)?instagram\.com/, '');
+      if (!/^[a-zA-Z0-9._]{6,40}$/.test(handle) ||
+          !/^\/[a-zA-Z0-9._]+\/?(?:\?.*)?$/.test(href)) continue;
+      const bounds = link.getBoundingClientRect?.();
+      if (!bounds || bounds.width >= Math.min(88, videoRect.width * 0.39) || bounds.height < 55) continue;
+      const centerX = bounds.left + bounds.width / 2;
+      const centerY = bounds.top + bounds.height / 2;
+      if (centerX < videoRect.left || centerX > videoRect.right ||
+          centerY < videoRect.top || centerY > videoRect.bottom) continue;
+
+      const width = Math.max(100, Math.min(166, Math.round(videoRect.width - 105)));
+      const set = (element, field, value) => element.style?.setProperty?.(field, value, 'important');
+      for (const element of [link, ...link.querySelectorAll('span')]) {
+        set(element, 'white-space', 'nowrap');
+        set(element, 'word-break', 'normal');
+        set(element, 'overflow-wrap', 'normal');
+      }
+      set(link, 'display', 'inline-flex');
+      set(link, 'flex-shrink', '0');
+      set(link, 'min-width', `${width}px`);
+      set(link, 'max-width', `${width}px`);
+      set(link, 'overflow', 'hidden');
+      set(link, 'text-overflow', 'ellipsis');
+
+      // Expand only collapsed wrappers; don't stretch the entire Reel card.
+      let wrapper = link.parentElement;
+      for (let depth = 0; depth < 3 && wrapper; depth++, wrapper = wrapper.parentElement) {
+        const parentBounds = wrapper.getBoundingClientRect?.();
+        if (!parentBounds || parentBounds.width >= width - 8) break;
+        set(wrapper, 'min-width', `${width}px`);
+        set(wrapper, 'flex-shrink', '0');
+      }
+    }
+  }
 
   function visibleFraction(video) {
     const rect = video.getBoundingClientRect?.();
@@ -75,6 +121,7 @@ export function installReelsWatcher({ tickMs = 150, nearEndSeconds = 0.3 } = {})
 
       const id = identify(video);
       const rect = video.getBoundingClientRect();
+      fixCollapsedUsername(rect);
       state.videoRect = {
         x: Math.round(rect.left), y: Math.round(rect.top),
         width: Math.round(rect.width), height: Math.round(rect.height),

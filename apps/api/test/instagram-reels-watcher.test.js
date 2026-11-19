@@ -15,12 +15,16 @@ function reel({ src = 'synthetic.webm', time = 1, duration = 8, paused = false, 
   };
 }
 
-function fixture(videos) {
+function fixture(videos, links = []) {
   let tick = null;
   let cleared = false;
   const host = {
     innerWidth: 320, innerHeight: 600,
-    document: { querySelectorAll(selector) { assert.equal(selector, 'video'); return videos; } },
+    document: { querySelectorAll(selector) {
+      if (selector === 'video') return videos;
+      if (selector === 'a[href]') return links;
+      throw new Error(`Unexpected selector ${selector}`);
+    } },
     setInterval(callback) { tick = callback; return 1; },
     clearInterval(id) { assert.equal(id, 1); cleared = true; },
   };
@@ -99,4 +103,32 @@ test('recycled video elements with changed sources are treated as new Reels', ()
   first.currentTime = 2.95;
   setup.tick();
   assert.equal(status.scrollRequest, 2);
+});
+
+test('repairs vertically wrapped account handles without changing unrelated Instagram text', () => {
+  const properties = new Map();
+  const wrapper = {
+    getBoundingClientRect: () => ({ width: 18 }),
+    style: { setProperty: (name, value) => properties.set(`parent:${name}`, value) },
+    parentElement: null,
+  };
+  const username = {
+    textContent: 'raana_official',
+    getAttribute: () => '/raana_official/',
+    getBoundingClientRect: () => ({ left: 130, top: 100, width: 16, height: 400 }),
+    querySelectorAll: () => [], parentElement: wrapper,
+    style: { setProperty: (name, value) => properties.set(name, value) },
+  };
+  const other = {
+    ...username, textContent: 'Follow',
+    getBoundingClientRect: () => ({ left: 200, top: 280, width: 70, height: 30 }),
+  };
+  fixture([reel()], [username, other]);
+  assert.equal(properties.get('white-space'), 'nowrap');
+  assert.equal(properties.get('word-break'), 'normal');
+  assert.equal(properties.get('overflow-wrap'), 'normal');
+  assert.equal(properties.get('overflow'), 'hidden');
+  assert.equal(properties.get('text-overflow'), 'ellipsis');
+  assert.equal(properties.get('min-width'), '166px');
+  assert.equal(properties.get('parent:min-width'), '166px');
 });

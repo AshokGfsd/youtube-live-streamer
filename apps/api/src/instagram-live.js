@@ -49,14 +49,20 @@ export function validateInstagramSettings(payload) {
 // The browser displays a 360x640 CSS page in the top-left of a 540x960 X11
 // desktop. Crop the *playing video element*, not the surrounding white page.
 // The Instagram watcher measures the same video on each auto-scroll cycle.
-export function reelCaptureCrop(rect, { captureWidth, captureHeight }) {
+export function reelCaptureCrop(rect, { captureWidth, captureHeight }, viewport = null) {
   if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)) {
     throw new ChannelError('Playing Reel bounds unavailable; play a Reel before starting the iPhone layout');
   }
-  const left = Math.max(0, Math.floor(rect.x / 2) * 2);
-  const top = Math.max(0, Math.floor(rect.y / 2) * 2);
-  const right = Math.min(captureWidth, Math.floor((rect.x + rect.width) / 2) * 2);
-  const bottom = Math.min(captureHeight, Math.floor((rect.y + rect.height) / 2) * 2);
+  // CDP getBoundingClientRect returns CSS pixels. X11grab captures *physical*
+  // pixels; when Chrome emulates a 360px phone on a 540px X11 display, its
+  // coordinates must be scaled by 1.5 before cropping. Without this the crop
+  // zooms into one side of the Reel and can cut into Instagram's overlay UI.
+  const scaleX = viewport?.viewportWidth > 0 ? captureWidth / viewport.viewportWidth : 1;
+  const scaleY = viewport?.viewportHeight > 0 ? captureHeight / viewport.viewportHeight : 1;
+  const left = Math.max(0, Math.floor(rect.x * scaleX / 2) * 2);
+  const top = Math.max(0, Math.floor(rect.y * scaleY / 2) * 2);
+  const right = Math.min(captureWidth, Math.floor((rect.x + rect.width) * scaleX / 2) * 2);
+  const bottom = Math.min(captureHeight, Math.floor((rect.y + rect.height) * scaleY / 2) * 2);
   const width = right - left;
   const height = bottom - top;
   if (width < 100 || height < 150 || left + width > captureWidth || top + height > captureHeight) {
@@ -65,10 +71,10 @@ export function reelCaptureCrop(rect, { captureWidth, captureHeight }) {
   return { x: left, y: top, width, height };
 }
 
-export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display = ':1', videoRect = null) {
+export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display = ':1', videoRect = null, viewport = null) {
   const config = validateInstagramSettings(settings);
   const phoneFrame = config.mobileLayout && config.frame === 'iphone';
-  const crop = phoneFrame ? reelCaptureCrop(videoRect, config) : null;
+  const crop = phoneFrame ? reelCaptureCrop(videoRect, config, viewport) : null;
   // Ingest URL and stream key have already been validated by ChannelStore.
   const args = ['-hide_banner', '-nostdin', '-loglevel', 'warning',
     '-thread_queue_size', '512', '-f', 'x11grab', '-draw_mouse', '0',
@@ -224,7 +230,7 @@ export class InstagramLiveManager {
         this.broadcast = await youtube.createBroadcast({ title: settings.title, description: settings.description, privacy: settings.privacy });
       }
       const args = buildInstagramFfmpegArgs(settings, channel.ingestUrl, key,
-        this.env.INSTAGRAM_DISPLAY || ':1', browserState?.videoRect);
+        this.env.INSTAGRAM_DISPLAY || ':1', browserState?.videoRect, browserState);
       if (settings.audio === 'pulse') {
         this.audioProcess = this.spawnProcess('parec', ['--device=@DEFAULT_MONITOR@', '--format=s16le', '--rate=44100', '--channels=2'],
           { stdio: ['ignore', 'pipe', 'pipe'] });

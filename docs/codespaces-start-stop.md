@@ -110,6 +110,17 @@ first, edit, and restart. Some videos can fail when deleted, region-restricted,
 login-gated or blocked by autoplay; open the private Chrome window and check
 playback if the live diagnostics report a Reel could not play.
 
+### iPhone layout: vertically wrapped Instagram usernames
+
+Instagram's narrow desktop Reels layout can reduce a long account handle to a
+one-character-wide column. StreamForge now corrects those collapsed handles
+inside the currently playing Reel (without changing regular captions) and maps
+Chrome's emulated **CSS** video bounds to the X11 **physical** pixel resolution
+before the iPhone crop. Restart both scripts after pulling, start a new private
+test stream, and inspect the output in YouTube Studio. Instagram can change
+its web markup at any time, so report a new screenshot if a particular Reel
+still displays its overlay incorrectly.
+
 From the Codespaces terminal, check the selected playback position and current
 errors without exposing your stream key:
 

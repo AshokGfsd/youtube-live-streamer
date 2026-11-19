@@ -60,6 +60,16 @@ test('phone compositing crops only the playing Reel and preserves audio input', 
     { captureWidth: 540, captureHeight: 960 }), /outside/);
 });
 
+test('iPhone crop maps emulated CSS coordinates back onto X11 physical pixels', () => {
+  const viewport = { viewportWidth: 360, viewportHeight: 640 };
+  const rect = { x: 32, y: 17, width: 223, height: 397 };
+  assert.deepEqual(reelCaptureCrop(rect, { captureWidth: 540, captureHeight: 960 }, viewport),
+    { x: 48, y: 24, width: 334, height: 596 });
+  const args = buildInstagramFfmpegArgs({ audio: 'silent' }, 'rtmps://a.rtmps.youtube.com/live2',
+    'test-key', ':99', rect, viewport);
+  assert.match(args[args.indexOf('-filter_complex') + 1], /crop=334:596:48:24/);
+});
+
 test('start requires explicit rights and releases browser and FFmpeg on stop', async () => {
   let child;
   let controllerStopped = false;
