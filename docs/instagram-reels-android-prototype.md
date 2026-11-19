@@ -45,7 +45,23 @@ export DISPLAY=:1
 pulseaudio --start --exit-idle-time=-1
 ```
 
-Launch Chromium with a **dedicated local profile** and loopback-only CDP port:
+For **mobile-looking video** instead of the desktop sidebar in your screenshot,
+set the Termux:X11 Android companion app's display resolution mode to
+**exact 540 × 960 portrait**. Restart X11 after changing the resolution.
+Close **all** old Chromium windows (a second launch would reuse the original
+desktop process), then run:
+
+```sh
+cd ~/streamforge-reels-test
+bash scripts/launch-instagram-mobile.sh
+```
+
+This starts Chromium in fullscreen **kiosk app mode** without tabs or an
+address bar. The StreamForge live controller then applies a phone-width
+responsive Instagram viewport. Kiosk mode and a portrait X11 screen are both
+needed: the Chromium viewport setting alone cannot change the X11 resolution.
+
+For the original **desktop-layout prototype**, the older command is:
 
 ```sh
 chromium-browser --user-data-dir="$HOME/.streamforge-reels-browser" \
@@ -146,15 +162,17 @@ wizard at `http://127.0.0.1:4000/channels`.
 
 1. Open **http://127.0.0.1:4000/instagram-live** in your Android Chrome.
 2. Select your completed YouTube channel with its saved stream key.
-3. In Termux:X11 Chromium, log in manually, open Instagram Reels and play one.
-   Use fullscreen Chromium so your display doesn't include the browser URL bar.
+3. In the Termux:X11 companion app, select portrait **540 × 960**, close the
+   old desktop Chromium window and launch `bash scripts/launch-instagram-mobile.sh`.
+   Log in manually and play one Reel. Kiosk mode removes browser controls.
 4. Press **Check local browser**.
 5. Enter live title, description, privacy and auto-scroll method. Each edit
    saves automatically to MySQL. For your **first test**, select `Private` and
    `Silent audio` under Capture settings.
-6. Set capture X/Y and dimensions to the visible X11 browser area (the defaults
-   are **540 × 960**). If your display is smaller, use **320 × 568** or another
-   even-sized rectangle that fits.
+6. Leave **Mobile portrait Reels** enabled. Set capture X/Y to **0 / 0** and
+   dimensions to the *actual* portrait X11 display (**540 × 960** by default).
+   For a smaller X11 display, use matching even capture sizes, e.g.
+   **320 × 568**. Portrait capture requires width smaller than height.
 7. If you connected the YouTube account using Google OAuth, check **Create
    YouTube event automatically**. Otherwise prepare a live event in YouTube
    Studio using the configured stream key; entering a title in StreamForge
@@ -162,7 +180,9 @@ wizard at `http://127.0.0.1:4000/channels`.
 8. Only after confirming you own or are licensed to rebroadcast the feed and
    audio, check the rights box and press **Start Reels livestream**.
 9. Open **YouTube Studio** to confirm the video preview and that the event is
-   receiving packets. Check the new live diagnostics for FFmpeg errors.
+   receiving packets. Confirm the Reel fills the portrait canvas with **no
+   Chromium address bar or Instagram desktop sidebar**. Check the live
+   diagnostics for FFmpeg errors.
 10. Press **Stop livestream** to stop both FFmpeg and the Reels controller.
 
 You can test the API without starting a stream:

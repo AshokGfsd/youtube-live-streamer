@@ -4,6 +4,7 @@ import { InstagramReelsController, findInstagramTab } from './instagram-cdp.js';
 
 const DEFAULTS = Object.freeze({
   title: '', description: '', privacy: 'private', scroll: 'wheel',
+  mobileLayout: true,
   captureWidth: 540, captureHeight: 960, captureX: 0, captureY: 0,
   fps: 15, bitrateKbps: 1200, audio: 'silent', createBroadcast: false,
 });
@@ -23,11 +24,15 @@ export function validateInstagramSettings(payload) {
   }
   if (!['private', 'unlisted', 'public'].includes(input.privacy)) throw new ChannelError('Invalid YouTube privacy');
   if (!['wheel', 'arrow'].includes(input.scroll)) throw new ChannelError('Scroll mode must be wheel or arrow');
+  if (typeof input.mobileLayout !== 'boolean') throw new ChannelError('Invalid mobile Reels layout setting');
   if (!['silent', 'pulse'].includes(input.audio)) throw new ChannelError('Audio must be silent or PulseAudio monitor');
   if (typeof input.createBroadcast !== 'boolean') throw new ChannelError('Invalid automatic broadcast setting');
   for (const field of ['captureWidth', 'captureHeight']) intInRange(input[field], field, 240, 1920);
   // H.264 / yuv420p requires even capture dimensions.
   if (input.captureWidth % 2 || input.captureHeight % 2) throw new ChannelError('Capture dimensions must be even numbers');
+  if (input.mobileLayout && input.captureWidth >= input.captureHeight) {
+    throw new ChannelError('Mobile Reels requires portrait capture: width must be smaller than height');
+  }
   for (const field of ['captureX', 'captureY']) intInRange(input[field], field, 0, 4000);
   intInRange(input.fps, 'fps', 5, 30);
   intInRange(input.bitrateKbps, 'bitrateKbps', 300, 5000);
@@ -140,6 +145,7 @@ export class InstagramLiveManager {
     this.feedState = null;
     try {
       this.controller = this.makeController({ port: Number(this.env.INSTAGRAM_CDP_PORT || 9222), scroll: settings.scroll,
+        mobileLayout: settings.mobileLayout, captureWidth: settings.captureWidth, captureHeight: settings.captureHeight,
         onState: (state) => { this.feedState = state; },
         onError: (error) => { this.fail(error instanceof Error ? error.message : 'Instagram controller stopped'); },
       });
@@ -180,7 +186,9 @@ export class InstagramLiveManager {
         child.once('error', reject);
       });
       this.startedAt = new Date().toISOString();
-      this.appendLog('Screen capture started. Reels will scroll after playback ends.');
+      this.appendLog(settings.mobileLayout
+        ? 'Portrait mobile viewport enabled. Check kiosk browser and X11 screen alignment in YouTube Studio.'
+        : 'Desktop screen capture started. Reels will scroll after playback ends.');
       this.controller.run().catch((error) => this.fail(error.message));
       return this.getStatus();
     } catch (error) {

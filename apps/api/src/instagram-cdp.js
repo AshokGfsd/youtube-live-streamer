@@ -41,6 +41,21 @@ export async function findInstagramTab(port = 9222) {
   return { socketUrl: `ws://127.0.0.1:${port}${socketUrl.pathname}${socketUrl.search}`, title: 'Instagram Reels' };
 }
 
+// Match the browser's responsive layout to the portrait X11 capture rectangle.
+// This changes only the existing Instagram tab's viewport; it does not copy
+// account data or alter the stored Chromium profile.
+export function mobileReelsEmulation(width, height) {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 240 || height < 240 || width >= height) {
+    throw new InstagramBrowserError('Mobile Reels needs a portrait capture size (width smaller than height)', 400);
+  }
+  return [
+    { method: 'Emulation.setDeviceMetricsOverride', params: {
+      width, height, deviceScaleFactor: 1, mobile: true,
+    } },
+    { method: 'Emulation.setTouchEmulationEnabled', params: { enabled: true, maxTouchPoints: 1 } },
+  ];
+}
+
 class DevtoolsSession {
   constructor(socket) {
     this.socket = socket;
@@ -98,9 +113,13 @@ class DevtoolsSession {
 }
 
 export class InstagramReelsController {
-  constructor({ port = 9222, scroll = 'wheel', onState = () => {}, onError = () => {} } = {}) {
+  constructor({ port = 9222, scroll = 'wheel', mobileLayout = true, captureWidth = 540, captureHeight = 960,
+    onState = () => {}, onError = () => {} } = {}) {
     this.port = port;
     this.scroll = scroll;
+    this.mobileLayout = mobileLayout;
+    this.captureWidth = captureWidth;
+    this.captureHeight = captureHeight;
     this.onState = onState;
     this.onError = onError;
     this.stopped = false;
@@ -112,16 +131,26 @@ export class InstagramReelsController {
   async connect() {
     const { socketUrl } = await findInstagramTab(this.port);
     this.session = await DevtoolsSession.connect(socketUrl);
-    await this.session.call('Runtime.enable');
-    await this.session.evaluate(`(${installReelsWatcher.toString()})(${JSON.stringify({ tickMs: 130 })})`);
-    await delay(250);
-    this.lastState = await this.readState();
-    if (!this.lastState?.activeId || !['playing', 'scroll-requested'].includes(this.lastState.phase)) {
+    try {
+      if (this.mobileLayout) {
+        for (const command of mobileReelsEmulation(this.captureWidth, this.captureHeight)) {
+          await this.session.call(command.method, command.params);
+        }
+      }
+      await this.session.call('Runtime.enable');
+      await this.session.evaluate(`(${installReelsWatcher.toString()})(${JSON.stringify({ tickMs: 130 })})`);
+      // Let Instagram react to the newly narrow viewport before checking playback.
+      await delay(this.mobileLayout ? 600 : 250);
+      this.lastState = await this.readState();
+      if (!this.lastState?.activeId || !['playing', 'scroll-requested'].includes(this.lastState.phase)) {
+        throw new InstagramBrowserError('Play one Reel in your Chromium Instagram tab before starting the live stream', 409);
+      }
+      this.onState(this.lastState);
+      return this.lastState;
+    } catch (error) {
       await this.stop();
-      throw new InstagramBrowserError('Play one Reel in your Chromium Instagram tab before starting the live stream', 409);
+      throw error;
     }
-    this.onState(this.lastState);
-    return this.lastState;
   }
 
   async readState() {

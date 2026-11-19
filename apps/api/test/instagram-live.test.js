@@ -5,12 +5,16 @@ import { InstagramLiveManager, buildInstagramFfmpegArgs, validateInstagramSettin
 
 test('validates capture dimensions, scroll method, and rights settings', () => {
   assert.equal(validateInstagramSettings({}).audio, 'silent');
+  assert.equal(validateInstagramSettings({}).mobileLayout, true);
   assert.equal(validateInstagramSettings({ scroll: 'arrow', captureWidth: 320 }).scroll, 'arrow');
   assert.throws(() => validateInstagramSettings({ captureWidth: 321 }), /even numbers/);
   assert.throws(() => validateInstagramSettings({ privacy: 'unknown' }), /privacy/);
   assert.throws(() => validateInstagramSettings({ captureX: -1 }), /captureX/);
   assert.throws(() => validateInstagramSettings({ audio: 'microphone' }), /Audio/);
   assert.throws(() => validateInstagramSettings({ createBroadcast: 'false' }), /automatic broadcast/);
+  assert.throws(() => validateInstagramSettings({ mobileLayout: 'yes' }), /mobile Reels layout/);
+  assert.throws(() => validateInstagramSettings({ captureWidth: 960, captureHeight: 540 }), /portrait capture/);
+  assert.equal(validateInstagramSettings({ mobileLayout: false, captureWidth: 960, captureHeight: 540 }).mobileLayout, false);
 });
 
 test('FFmpeg captures X11 and outputs safe YouTube RTMPS with silent audio', () => {
