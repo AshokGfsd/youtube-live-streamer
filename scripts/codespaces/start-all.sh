@@ -10,10 +10,12 @@ app_dir="$HOME/StreamForge-GCloud"
 step() { printf '\n[%s] %s\n' "$1" "$2"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
-# 1. Check required programs; prefer Google Chrome if Chromium is unavailable.
-step '1/8' 'Checking required programs...'
+# 1. Install only missing system prerequisites on Ubuntu/Debian Codespaces.
+# Re-running start-all is safe; no apt update/install runs when all are present.
+step '1/8' 'Checking and auto-installing missing programs...'
+bash "$repo_dir/scripts/codespaces/install-deps.sh" || fail 'Could not install missing system dependencies.'
 for program in node npm curl ffmpeg ffprobe tmux Xvfb xdpyinfo openbox x11vnc websockify mariadb-admin pulseaudio pactl parec; do
-  command -v "$program" >/dev/null 2>&1 || fail "Missing $program; install it first."
+  command -v "$program" >/dev/null 2>&1 || fail "$program is still missing after installation."
 done
 browser=''
 for candidate in chromium google-chrome chromium-browser; do

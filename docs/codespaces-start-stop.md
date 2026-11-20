@@ -12,7 +12,9 @@ bash start-all.sh
 
 The script runs these stages in order:
 
-1. Check Node.js 22+, FFmpeg, MariaDB, PulseAudio, Xvfb, VNC/noVNC, tmux and Chrome.
+1. Check Node.js, FFmpeg/FFprobe, MariaDB, PulseAudio, Xvfb, VNC/noVNC,
+   tmux and Chrome. **Automatically install missing Ubuntu/Debian packages**
+   using `apt-get`, then verify Node.js is version 22 or newer.
 2. Check `~/StreamForge-GCloud/.env` and the private VNC password.
 3. Start **MariaDB** with `sudo service mariadb start` if needed.
 4. Start **PulseAudio**, create `sf_audio` and set `sf_audio.monitor` for capture.
@@ -23,6 +25,21 @@ The script runs these stages in order:
 
 An existing service is reused rather than interrupted. When changing backend
 code, stop first, then start again to load the updated source.
+
+**Missing `ffmpeg` or another system tool?** `bash start-all.sh` now detects
+missing dependencies and runs `sudo -n apt-get update` and an unattended
+`apt-get install` for only the missing packages. On a fully configured
+Codespace it skips apt entirely. It needs a working Ubuntu/Debian package
+manager, outbound package-mirror access and passwordless sudo (normally
+available in Codespaces). This does not install or upgrade Node.js to a
+specific major version; Node.js **22+** remains required. On a different
+Linux distro or without sudo, the script fails with an actionable error.
+
+To inspect missing packages without installing anything:
+
+```bash
+bash scripts/codespaces/install-deps.sh --dry-run
+```
 
 First use: if `.env` is missing, follow the error and configure
 `~/StreamForge-GCloud/.env` using the example. If `.vnc/passwd` does not exist,
