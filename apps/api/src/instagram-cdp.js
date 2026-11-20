@@ -72,7 +72,7 @@ export function mobileReelsEmulation(width, height) {
   ];
 }
 
-class DevtoolsSession {
+export class DevtoolsSession {
   constructor(socket) {
     this.socket = socket;
     this.counter = 0;

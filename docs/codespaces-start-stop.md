@@ -180,8 +180,7 @@ returns 404, export a fresh Instagram URL. Never post signed URL query strings
 in screenshots, issues or chat.
 
 After pulling and restarting, test **three distinct clips** (with audio,
-without audio, and a portrait/landscape variation). Share the test results
-before selecting the Phase 2 continuous-media playlist implementation.
+without audio, and a portrait/landscape variation) before live streaming.
 Only use sources you own or have permission to rebroadcast.
 
 ## Direct MP4 playlist → YouTube Live (no VNC screen capture)
@@ -219,3 +218,30 @@ when a link expires. If FFmpeg logs an inaccessible/expired URL or a stream
 structure error, stop, export fresh links and try a smaller set of compatible
 clips. This is direct remote media playback, not a downloader or permanent
 video archive. Use only licensed content.
+
+## Automatic Instagram keyword → MP4 playlist collection
+
+1. Make sure the private Chrome `:9222` session is running and signed in to
+   Instagram. You can check this through noVNC. The collector does **not**
+   bypass login screens, CAPTCHAs or site restrictions.
+2. Open **Instagram Reels Live → Find Instagram videos automatically**.
+   Enter a keyword (e.g. **naruto**) and a video count (1–100). Click
+   **Find videos automatically**. StreamForge opens a temporary tab in the
+   signed-in Chrome profile on Instagram's normal keyword search page, inspects
+   rendered videos, hovers result tiles and scrolls with small delays.
+3. Watch **X / Y videos found** and use **Stop collecting** if needed. The
+   collector stops at the target count, when no more playable videos load,
+   or after a bounded number of scrolls.
+4. Available MP4 links automatically populate the direct playlist and enable
+   **Use these MP4 links as YouTube Live source**. Optionally use **Download
+   collected JSON** for a temporary backup, or **Check media** on an item.
+5. After checking media and confirming you have rights to every clip/audio,
+   click **Start Direct MP4 livestream** separately, with YouTube visibility
+   initially set to **Private**. Collecting links alone never starts a live.
+
+**Limits:** Instagram may render a thumbnail without an HTML video/media URL;
+the requested count cannot be guaranteed. The collector only reads media
+rendered in your private logged-in Chrome and creates/closes its own temporary
+search tab. It does not call private Instagram APIs, bypass login/CAPTCHA,
+download media or store signed links permanently. URLs can expire quickly.
+One search at a time is allowed and it cannot run during an active livestream.

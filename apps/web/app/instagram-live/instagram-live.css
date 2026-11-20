@@ -66,6 +66,14 @@
 .il-probe-fail{background:#fff1f1;border:1px solid #f8cdcd;color:#aa4242}
 .il-media-copy{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:max-content;max-width:100%;padding:8px 11px;background:#eef4f8;border:1px solid #b9d0de;border-radius:9px;color:#254b65;font-size:11px;font-weight:700;cursor:pointer}
 .il-media-copy:disabled{opacity:.55;cursor:not-allowed}
+.il-auto-collector{display:grid;gap:12px;background:#f5faff;border:1px solid #d4e8f8;border-radius:13px;padding:14px}
+.il-auto-collector .il-two-cols{gap:10px}
+.il-auto-collector .il-two-cols input{width:100%;min-width:0}
+.il-collector-progress{display:grid;gap:7px;background:#fff;border:1px solid #d8e7f1;border-radius:10px;padding:11px 12px;color:#23425f;font-size:12px}
+.il-collector-progress>div{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.il-collector-progress progress{width:100%;height:10px;accent-color:#12a77e}
+.il-collector-progress p{margin:0;color:#4b6a84;line-height:1.5}
+.il-collector-progress .il-collector-error{color:#b23542}
 @media(max-width:1180px){.il-sidebar{width:205px;min-width:205px}.il-container{padding:26px 24px}.il-layout{grid-template-columns:minmax(0,1.1fr) minmax(270px,1fr)}.il-panel{padding:19px}.il-hero h1{font-size:33px}}
 @media(max-width:900px){.il-sidebar{display:none}.il-topbar{height:64px;padding:0 22px}.il-overview{gap:10px}.il-stat{padding:16px}.il-layout{grid-template-columns:1fr 1fr;gap:13px}.il-left,.il-right{gap:13px}.il-container{padding:27px 18px 50px}}
 @media(max-width:700px){.il-topbar{padding:0 15px}.il-local-chip{font-size:8px;padding:8px}.il-breadcrumb{font-size:11px;gap:8px}.il-container{padding:25px 13px 40px}.il-hero h1{font-size:28px}.il-hero-copy{font-size:12px}.il-hero-icon{display:none}.il-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.il-overview .il-stat:last-child{grid-column:1/-1}.il-stat{min-height:118px}.il-stat b{font-size:19px}.il-layout{grid-template-columns:1fr}.il-panel{padding:20px}.il-phone-preview{max-width:280px;min-height:310px}.il-two-cols{grid-template-columns:1fr 1fr}}

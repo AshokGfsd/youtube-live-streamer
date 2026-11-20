@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { CheckCircle2, CircleAlert, Copy, FlaskConical, Link2, LoaderCircle, Upload, Video } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { CheckCircle2, CircleAlert, Copy, FlaskConical, Link2, LoaderCircle, Search, Upload, Video } from 'lucide-react';
 
 type ProbeResult = {
   reachable: boolean;
@@ -12,6 +12,9 @@ type ProbeResult = {
 };
 
 type ApiRequest = <T,>(url: string, init?: RequestInit) => Promise<T>;
+type CollectorStatus = { phase: 'idle' | 'running' | 'completed' | 'failed' | 'stopped'; query: string;
+  requested: number; found: number; visited: number; error: string | null; note: string };
+type CollectorResults = CollectorStatus & { directVideoUrls: string[] };
 
 function safeUrlLabel(value: string) {
   try {
@@ -36,6 +39,74 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ProbeResult | null>(null);
   const [error, setError] = useState('');
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchCount, setSearchCount] = useState(20);
+  const [collector, setCollector] = useState<CollectorStatus | null>(null);
+  const [collectBusy, setCollectBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    request<CollectorStatus>('/api/instagram-live/media/collect/status')
+      .then((status) => { if (!cancelled && status.phase === 'running') setCollector(status); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [request]);
+
+  useEffect(() => {
+    if (collector?.phase !== 'running') return;
+    let cancelled = false;
+    const poll = setInterval(async () => {
+      try {
+        const status = await request<CollectorStatus>('/api/instagram-live/media/collect/status');
+        if (cancelled) return;
+        setCollector(status);
+        if (status.phase !== 'running') {
+          const results = await request<CollectorResults>('/api/instagram-live/media/collect/results');
+          if (cancelled) return;
+          if (results.directVideoUrls.length) {
+            setImported(results.directVideoUrls);
+            setUrl(results.directVideoUrls[0]);
+            setError(''); setResult(null); setImportWarning(''); setCopied(false);
+            onMediaUrlsChange(results.directVideoUrls);
+            onDirectActiveChange(true);
+          } else if (status.phase === 'completed') {
+            setError('No direct MP4 elements were exposed by Instagram. Sign in, try another keyword, or use manual JSON import.');
+          }
+        }
+      } catch (cause) { if (!cancelled) setError((cause as Error).message); }
+    }, 1300);
+    return () => { cancelled = true; clearInterval(poll); };
+  }, [collector?.phase, request, onMediaUrlsChange, onDirectActiveChange]);
+
+  async function startCollection() {
+    if (liveLocked || collectBusy || collector?.phase === 'running') return;
+    setCollectBusy(true); setError(''); setResult(null); setImportWarning('');
+    try {
+      const status = await request<CollectorStatus>('/api/instagram-live/media/collect/start', {
+        method: 'POST', body: JSON.stringify({ query: searchKeyword.trim(), count: searchCount }),
+      });
+      setCollector(status);
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setCollectBusy(false); }
+  }
+
+  async function stopCollection() {
+    try {
+      const status = await request<CollectorStatus>('/api/instagram-live/media/collect/stop', { method: 'POST', body: '{}' });
+      setCollector(status);
+    } catch (cause) { setError((cause as Error).message); }
+  }
+
+  function exportJson() {
+    if (!imported.length) return;
+    const json = JSON.stringify({ source: 'streamforge-instagram-collector', searchQuery: collector?.query || null,
+      exportedAt: new Date().toISOString(), directVideoUrls: imported }, null, 2);
+    const objectUrl = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = objectUrl; link.download = `instagram-${Date.now()}.json`;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
 
   async function importJson(file: File | undefined) {
     if (!file) return;
@@ -78,10 +149,38 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
     <section className="il-panel il-media-probe">
       <div className="il-panel-head">
         <div className="il-panel-icon il-magenta"><FlaskConical size={20}/></div>
-        <div><p>EXPERIMENT 01</p><h2>Direct MP4 → FFmpeg</h2>
-          <span>Test a video before building the continuous playlist engine. This does not start YouTube Live.</span></div>
+        <div><p>DIRECT MEDIA STUDIO</p><h2>Find Instagram videos automatically</h2>
+          <span>Search keyword + number of videos. Collect playable MP4 links into your direct FFmpeg playlist.</span></div>
       </div>
       <div className="il-playlist-fields">
+        <div className="il-auto-collector">
+          <div className="il-two-cols">
+            <div><label className="il-label" htmlFor="il-search-keyword">CONTENT TITLE / SEARCH KEYWORD</label>
+              <input id="il-search-keyword" type="text" maxLength={80} placeholder="e.g. naruto, puzzles, woodworking"
+                value={searchKeyword} onChange={(event) => setSearchKeyword(event.target.value)}
+                disabled={liveLocked || collectBusy || collector?.phase === 'running'}/></div>
+            <div><label className="il-label" htmlFor="il-search-count">NUMBER OF VIDEOS (1–100)</label>
+              <input id="il-search-count" type="number" min={1} max={100} value={searchCount}
+                onChange={(event) => setSearchCount(Number(event.target.value))}
+                disabled={liveLocked || collectBusy || collector?.phase === 'running'}/></div>
+          </div>
+          <div className="il-playlist-actions">
+            <button type="button" className="il-playlist-paste" onClick={() => void startCollection()}
+              disabled={liveLocked || collectBusy || collector?.phase === 'running' || searchKeyword.trim().length < 2 || !Number.isInteger(searchCount) || searchCount < 1 || searchCount > 100}>
+              {collector?.phase === 'running' ? <LoaderCircle className="il-spin" size={17}/> : <Search size={17}/>}
+              {collector?.phase === 'running' ? 'Collecting from Instagram…' : 'Find videos automatically'}
+            </button>
+            <button type="button" className="il-secondary-btn" onClick={() => void stopCollection()}
+              disabled={collector?.phase !== 'running'}>Stop collecting</button>
+          </div>
+          {collector && collector.phase !== 'idle' && <div className="il-collector-progress" role="status">
+            <div><b>{collector.found} / {collector.requested} videos found</b><span>{collector.phase} · {collector.visited} scroll passes</span></div>
+            <progress value={collector.found} max={collector.requested || 1}/>
+            {collector.note && <p>{collector.note}</p>}
+            {collector.error && <p className="il-collector-error">{collector.error}</p>}
+          </div>}
+          <p className="il-hint">Uses only your signed-in private Chrome session and visible Instagram Search results. Results depend on what Instagram loads; the requested count is not guaranteed. No login or CAPTCHA bypass.</p>
+        </div>
         <div><label className="il-label" htmlFor="il-media-url">EXTRACTED INSTAGRAM VIDEO URL</label>
           <div className="il-url-input"><Link2 size={17}/>
             <input id="il-media-url" type="url" autoComplete="off" spellCheck={false}
@@ -98,6 +197,7 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
             void importJson(event.target.files?.[0]); event.currentTarget.value = '';
           }}/>
         </label>
+        {imported.length > 0 && <button type="button" className="il-media-copy" onClick={exportJson}><Upload size={15}/> Download collected JSON ({imported.length})</button>}
         {imported.length > 0 && <div><label className="il-label" htmlFor="il-imported-video">IMPORTED DIRECT URLS · {imported.length}</label>
           <select id="il-imported-video" value={imported.includes(url) ? url : ''} disabled={busy || liveLocked}
             onChange={(event) => { setUrl(event.target.value); setResult(null); setError(''); setCopied(false); }}>

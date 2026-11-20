@@ -7,6 +7,7 @@ import { ChannelError } from './channel-store.js';
 import { InstagramReelsController, findInstagramTab } from './instagram-cdp.js';
 import { InstagramPlaylistStore, normalizeReelUrl } from './instagram-playlist.js';
 import { InstagramMediaProber } from './instagram-media-probe.js';
+import { InstagramMediaCollector } from './instagram-media-collector.js';
 import { buildDirectMediaFfmpegArgs, directMediaManifest, validateDirectMediaPlaylist } from './instagram-direct-media.js';
 
 const IPHONE_FRAME = fileURLToPath(new URL('./assets/iphone-frame.svg', import.meta.url));
@@ -124,6 +125,7 @@ export class InstagramLiveManager {
     this.store = store;
     this.playlist = new InstagramPlaylistStore(store);
     this.mediaProber = new InstagramMediaProber();
+    this.mediaCollector = new InstagramMediaCollector({ port: Number(env.INSTAGRAM_CDP_PORT || 9222) });
     this.studio = studio;
     this.env = env;
     this.spawnProcess = spawnProcess;
@@ -198,6 +200,7 @@ export class InstagramLiveManager {
 
   async start(id, rightsConfirmed, mediaUrls = undefined) {
     if (rightsConfirmed !== true) throw new ChannelError('Confirm you have rights to broadcast the Instagram Reels and audio', 400);
+    if (this.mediaCollector.phase === 'running') throw new ChannelError('Wait for Instagram search collection to finish or stop it before starting YouTube Live', 409);
     if (this.starting || this.process || this.activeChannelId) throw new ChannelError('Instagram feed is already streaming or starting', 409);
     if (this.studio.runningCount() >= this.studio.maxStreams) throw new ChannelError('Stop another channel stream first (device concurrency limit)', 409);
     const channel = await this.store.get(id);
@@ -338,6 +341,7 @@ export class InstagramLiveManager {
     this.audioProcess?.kill('SIGTERM');
     this.controller?.stop().catch(() => {});
     this.cleanupMediaManifest().catch(() => {});
+    this.mediaCollector.stop();
   }
 }
 
@@ -354,6 +358,13 @@ export function registerInstagramLiveRoutes(app, { manager, localOnly }) {
   app.post('/api/instagram-live/media/probe', async (req, res) => res.json(
     await manager.mediaProber.probe(req.body?.url, { decode: req.body?.decode ?? false })
   ));
+  app.post('/api/instagram-live/media/collect/start', (req, res) => {
+    if (manager.process || manager.starting) throw new ChannelError('Stop the active livestream before collecting Instagram search videos', 409);
+    res.status(202).json(manager.mediaCollector.start(req.body));
+  });
+  app.get('/api/instagram-live/media/collect/status', (_req, res) => res.json(manager.mediaCollector.status()));
+  app.get('/api/instagram-live/media/collect/results', (_req, res) => res.json(manager.mediaCollector.results()));
+  app.post('/api/instagram-live/media/collect/stop', (_req, res) => res.json(manager.mediaCollector.stop()));
   app.get('/api/instagram-live/:id/playlist', async (req, res) => res.json({ items: await manager.playlist.list(req.params.id) }));
   app.post('/api/instagram-live/:id/playlist', async (req, res) => res.status(201).json({ items: await manager.playlist.add(req.params.id, req.body) }));
   app.post('/api/instagram-live/:id/playlist/current', async (req, res) => {
