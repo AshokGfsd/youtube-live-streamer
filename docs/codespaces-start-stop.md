@@ -245,3 +245,57 @@ rendered in your private logged-in Chrome and creates/closes its own temporary
 search tab. It does not call private Instagram APIs, bypass login/CAPTCHA,
 download media or store signed links permanently. URLs can expire quickly.
 One search at a time is allowed and it cannot run during an active livestream.
+
+## Single-channel configuration in `.env`
+
+The Instagram Live studio can use **one YouTube channel** without removing its
+existing MySQL database. Edit the private `/home/codespace/StreamForge-GCloud/.env`
+(normally `~/StreamForge-GCloud/.env`) and set:
+
+```dotenv
+MULTI_CHANNEL_ENABLED=false
+SINGLE_CHANNEL_ID=
+SINGLE_CHANNEL_NAME=ClueRipple Live
+SINGLE_CHANNEL_HANDLE=
+SINGLE_CHANNEL_YOUTUBE_CHANNEL_ID=
+SINGLE_CHANNEL_STREAM_KEY=PASTE_YOUR_PRIVATE_YOUTUBE_STREAM_KEY_HERE
+SINGLE_CHANNEL_INGEST_URL=rtmps://a.rtmps.youtube.com/live2
+SINGLE_CHANNEL_DEFAULT_TITLE=ClueRipple Live
+SINGLE_CHANNEL_DEFAULT_DESCRIPTION=
+SINGLE_CHANNEL_PRIVACY=private
+SINGLE_CHANNEL_LOOP=true
+MAX_CONCURRENT_STREAMS=1
+```
+
+The stream key in this example is a **placeholder**: enter your real key only
+in your untracked private `.env`. Keep the existing `MYSQL_*` settings: the
+Instagram Live playlist, channel profile and encryption still rely on MySQL.
+The server encrypts the env-supplied stream key before saving it.
+
+On API restart, single-channel mode selects the most recently updated **ready**
+channel (or first draft). If you already have multiple stored channels and
+want a specific one, put its UUID in `SINGLE_CHANNEL_ID`. Only the selected
+channel appears in the dashboard and can be accessed through channel/Instagram
+Live APIs; all other existing records remain intact. New channel creation is
+disabled. With no saved channels the API creates one draft automatically.
+If a `SINGLE_CHANNEL_STREAM_KEY` is provided, the selected channel is marked
+ready using the env-configured settings. Any nonempty env fields overwrite the
+selected channel's matching saved settings **on each API restart**; leave a
+field empty to retain its prior value.
+
+Set `MULTI_CHANNEL_ENABLED=true` later to reveal all saved channels and
+restore multichannel creation. In single mode the concurrent-stream limit is
+always one, regardless of `MAX_CONCURRENT_STREAMS`.
+
+After changing `.env`, stop any running livestream, then restart the server:
+
+```bash
+cd /workspaces/youtube-live-streamer
+bash stop-all.sh
+bash start-all.sh
+curl -s http://127.0.0.1:4000/health
+curl -s http://127.0.0.1:4000/api/channels | jq '{multiChannelEnabled, maxConcurrentStreams, channels: [.channels[] | {id, displayName, ready}]}'
+```
+
+The API is intentionally *not* hot-reloaded by `start-all.sh` when its existing
+tmux session is running. Restarting is needed for `.env` changes to take effect.

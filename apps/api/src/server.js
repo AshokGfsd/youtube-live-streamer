@@ -43,7 +43,10 @@ const youtube = localOnly ? new YouTubeAutomation({
 if (youtube) await youtube.initialize();
 const channelStore = await createChannelStore(env);
 const channelStudio = channelStore ? new ChannelStudio({ store: channelStore, dataDir, env, legacyManager: manager }) : null;
-if (channelStudio) await channelStudio.restore();
+if (channelStudio) {
+  await channelStudio.configureMode();
+  await channelStudio.restore();
+}
 const instagramLive = channelStudio && localOnly ? new InstagramLiveManager({ store: channelStore, studio: channelStudio, env }) : null;
 if (instagramLive) {
   await instagramLive.initialize();
@@ -94,7 +97,7 @@ app.use(cors((req, callback) => callback(null, {
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'streamforge-api', localOnly,
-  mysqlConfigured: Boolean(channelStore) }));
+  mysqlConfigured: Boolean(channelStore), multiChannelEnabled: channelStudio?.multiChannelEnabled ?? false }));
 
 app.use('/api', (req, res, next) => {
   if (localOnly) return next();

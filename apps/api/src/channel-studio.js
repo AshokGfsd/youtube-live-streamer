@@ -19,7 +19,67 @@ export class ChannelStudio {
     this.legacyManager = legacyManager;
     this.managers = new Map();
     this.youtubes = new Map();
-    this.maxStreams = Math.max(1, Math.min(8, Number(env.MAX_CONCURRENT_STREAMS || 1)));
+    const mode = String(env.MULTI_CHANNEL_ENABLED ?? 'true').trim().toLowerCase();
+    if (!['true', 'false'].includes(mode)) throw new Error('MULTI_CHANNEL_ENABLED must be true or false');
+    this.multiChannelEnabled = mode === 'true';
+    this.singleChannelId = null;
+    this.maxStreams = this.multiChannelEnabled ? Math.max(1, Math.min(8, Number(env.MAX_CONCURRENT_STREAMS || 1))) : 1;
+  }
+
+  // In single-channel mode keep all historical records in MySQL, but expose
+  // only one selected profile. An existing ready profile is preferred.
+  async configureMode() {
+    if (this.multiChannelEnabled) return;
+    const channels = await this.store.list();
+    const selectedId = String(this.env.SINGLE_CHANNEL_ID || '').trim();
+    let channel = selectedId ? channels.find((item) => item.id === selectedId) :
+      channels.find((item) => item.ready) || channels[0];
+    if (selectedId && !channel) throw new Error('SINGLE_CHANNEL_ID does not match an existing channel. Check its ID in multi-channel mode first.');
+    if (!channel) channel = await this.store.create();
+    this.singleChannelId = channel.id;
+
+    // .env fields are optional: an existing configured channel keeps its
+    // values unless explicitly overridden. Secrets are encrypted by the store.
+    const fields = ['SINGLE_CHANNEL_NAME', 'SINGLE_CHANNEL_HANDLE', 'SINGLE_CHANNEL_YOUTUBE_CHANNEL_ID',
+      'SINGLE_CHANNEL_STREAM_KEY', 'SINGLE_CHANNEL_INGEST_URL', 'SINGLE_CHANNEL_DEFAULT_TITLE',
+      'SINGLE_CHANNEL_DEFAULT_DESCRIPTION', 'SINGLE_CHANNEL_PRIVACY', 'SINGLE_CHANNEL_LOOP'];
+    if (!fields.some((field) => String(this.env[field] || '').trim())) return;
+    const value = (field, fallback) => String(this.env[field] || '').trim() || fallback;
+    await this.store.saveStep(channel.id, 1, {
+      displayName: value('SINGLE_CHANNEL_NAME', channel.displayName || 'My YouTube Channel'),
+      handle: value('SINGLE_CHANNEL_HANDLE', channel.handle || ''),
+      youtubeChannelId: value('SINGLE_CHANNEL_YOUTUBE_CHANNEL_ID', channel.youtubeChannelId || ''),
+      channelUrl: channel.channelUrl || '',
+    });
+    await this.store.saveStep(channel.id, 2, {
+      description: channel.description || '', keywords: channel.keywords || '', category: channel.category || 'Entertainment',
+    });
+    const streamKey = String(this.env.SINGLE_CHANNEL_STREAM_KEY || '').trim();
+    if (streamKey || channel.hasStreamKey) {
+      await this.store.saveStep(channel.id, 3, {
+        streamKey, ingestUrl: value('SINGLE_CHANNEL_INGEST_URL', channel.ingestUrl || 'rtmps://a.rtmps.youtube.com/live2'),
+      });
+      const rawLoop = String(this.env.SINGLE_CHANNEL_LOOP ?? '').trim().toLowerCase();
+      if (rawLoop && !['true', 'false'].includes(rawLoop)) throw new Error('SINGLE_CHANNEL_LOOP must be true or false');
+      await this.store.saveStep(channel.id, 4, {
+        defaultTitle: value('SINGLE_CHANNEL_DEFAULT_TITLE', channel.defaultTitle || ''),
+        defaultDescription: value('SINGLE_CHANNEL_DEFAULT_DESCRIPTION', channel.defaultDescription || ''),
+        privacy: value('SINGLE_CHANNEL_PRIVACY', channel.privacy || 'private'),
+        loop: rawLoop ? rawLoop === 'true' : channel.loop,
+      });
+      await this.store.complete(channel.id);
+    }
+  }
+
+  async visibleChannels() {
+    const channels = await this.store.list();
+    return this.multiChannelEnabled ? channels : channels.filter((channel) => channel.id === this.singleChannelId);
+  }
+
+  async assertChannelAllowed(id) {
+    if (!this.multiChannelEnabled && id !== this.singleChannelId) {
+      throw new ChannelError('Single-channel mode is enabled. Use your configured primary channel.', 403);
+    }
   }
 
   get videoSettings() {
@@ -35,6 +95,7 @@ export class ChannelStudio {
   }
 
   async managerFor(id) {
+    await this.assertChannelAllowed(id);
     const row = await this.store.get(id);
     let manager = this.managers.get(id);
     if (manager) {
@@ -53,7 +114,7 @@ export class ChannelStudio {
   }
 
   async restore() {
-    const channels = await this.store.list();
+    const channels = await this.visibleChannels();
     for (const channel of channels) {
       if (!channel.hasStreamKey) continue;
       // Restore streams intentionally after a server reboot; old inactive profiles
@@ -117,13 +178,21 @@ async function inspectVideo(file) {
 export function registerChannelRoutes(app, { store, studio, maxBytes }) {
   app.get('/api/channels', async (_req, res) => {
     if (!store) return res.json({ configured: false, channels: [], maxConcurrentStreams: 1 });
-    const channels = await store.list();
-    res.json({ configured: true, maxConcurrentStreams: studio.maxStreams,
+    const channels = await studio.visibleChannels();
+    res.json({ configured: true, multiChannelEnabled: studio.multiChannelEnabled,
+      maxConcurrentStreams: studio.maxStreams,
       channels: await Promise.all(channels.map(async (channel) => ({ ...channel,
         stream: channel.hasStreamKey ? (await studio.managerFor(channel.id)).getStatus() : null }))) });
   });
   app.use('/api/channels', (req, _res, next) => store ? next() : next(new ChannelError('Configure MYSQL_DATABASE and CHANNEL_ENCRYPTION_KEY to enable channel management', 503)));
-  app.post('/api/channels', async (_req, res) => res.status(201).json(await store.create()));
+  app.post('/api/channels', async (_req, res) => {
+    if (!studio.multiChannelEnabled) throw new ChannelError('Single-channel mode is enabled. Configure your channel using .env or edit the existing profile.', 409);
+    res.status(201).json(await store.create());
+  });
+  app.use('/api/channels/:id', async (req, _res, next) => {
+    try { await studio.assertChannelAllowed(req.params.id); next(); }
+    catch (error) { next(error); }
+  });
   app.get('/api/channels/:id', async (req, res) => {
     const channel = await store.getPublic(req.params.id);
     res.json({ ...channel, stream: channel.hasStreamKey ? (await studio.managerFor(channel.id)).getStatus() : null });

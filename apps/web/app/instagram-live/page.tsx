@@ -78,7 +78,9 @@ export default function InstagramLivePage() {
     ]);
     setChannels(profiles.channels);
     setStatus(live);
-    setSelectedId((current) => current || live.activeChannelId || profiles.channels.find((item) => item.ready)?.id || profiles.channels[0]?.id || '');
+    setSelectedId((current) => profiles.channels.some((channel) => channel.id === current)
+      ? current : profiles.channels.find((item) => item.id === live.activeChannelId)?.id ||
+        profiles.channels.find((item) => item.ready)?.id || profiles.channels[0]?.id || '');
   }, [baseUrl, request]);
 
   useEffect(() => {

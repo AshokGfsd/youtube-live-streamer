@@ -365,6 +365,10 @@ export function registerInstagramLiveRoutes(app, { manager, localOnly }) {
   app.get('/api/instagram-live/media/collect/status', (_req, res) => res.json(manager.mediaCollector.status()));
   app.get('/api/instagram-live/media/collect/results', (_req, res) => res.json(manager.mediaCollector.results()));
   app.post('/api/instagram-live/media/collect/stop', (_req, res) => res.json(manager.mediaCollector.stop()));
+  app.use('/api/instagram-live/:id', async (req, _res, next) => {
+    try { await manager.studio.assertChannelAllowed(req.params.id); next(); }
+    catch (error) { next(error); }
+  });
   app.get('/api/instagram-live/:id/playlist', async (req, res) => res.json({ items: await manager.playlist.list(req.params.id) }));
   app.post('/api/instagram-live/:id/playlist', async (req, res) => res.status(201).json({ items: await manager.playlist.add(req.params.id, req.body) }));
   app.post('/api/instagram-live/:id/playlist/current', async (req, res) => {

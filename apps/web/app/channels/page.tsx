@@ -53,6 +53,7 @@ export default function ChannelsPage() {
   const [apiBase, setApiBase] = useState('');
   const [authToken, setAuthToken] = useState('');
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [multiChannelEnabled, setMultiChannelEnabled] = useState(true);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [limit, setLimit] = useState(1);
   const [selectedId, setSelectedId] = useState('');
@@ -87,11 +88,13 @@ export default function ChannelsPage() {
 
   const refresh = useCallback(async () => {
     if (!apiBase) return;
-    const result = await request<{ configured: boolean; channels: Channel[]; maxConcurrentStreams: number }>('/api/channels');
+    const result = await request<{ configured: boolean; channels: Channel[]; multiChannelEnabled?: boolean; maxConcurrentStreams: number }>('/api/channels');
     setConfigured(result.configured);
+    setMultiChannelEnabled(result.multiChannelEnabled !== false);
     setChannels(result.channels);
     setLimit(result.maxConcurrentStreams || 1);
-    setSelectedId((current) => current || result.channels.find((channel) => channel.ready)?.id || result.channels[0]?.id || '');
+    setSelectedId((current) => result.channels.some((channel) => channel.id === current)
+      ? current : result.channels.find((channel) => channel.ready)?.id || result.channels[0]?.id || '');
   }, [apiBase, request]);
 
   useEffect(() => {
@@ -217,17 +220,17 @@ export default function ChannelsPage() {
         <Link href="/" className="ch-logo"><div className="ch-brand-icon"><Signal size={23}/></div><span><b>StreamForge<span className="ch-accent">.</span></b><small>BROADCAST STUDIO</small></span></Link>
         <div className="ch-nav-label">WORKSPACE</div>
         <Link href="/" className="ch-nav-item"><MonitorPlay size={18}/> Live studio</Link>
-        <div className="ch-nav-item ch-nav-active"><Layers3 size={18}/> My channels <span className="ch-nav-count">{channels.length}</span></div>
+        <div className="ch-nav-item ch-nav-active"><Layers3 size={18}/> {multiChannelEnabled ? 'My channels' : 'My channel'} <span className="ch-nav-count">{channels.length}</span></div>
         <Link href="/instagram-live" className="ch-nav-item"><Instagram size={18}/> Reels Live studio <ArrowRight size={14} className="ch-end"/></Link>
         <div className="ch-nav-label ch-nav-secondary">QUICK ACCESS</div>
         <a href="https://studio.youtube.com/" target="_blank" rel="noopener noreferrer" className="ch-nav-item"><Youtube size={18}/> YouTube Studio <ExternalLink size={14} className="ch-end"/></a>
-        <div className="ch-sidebar-bottom"><div className="ch-security"><ShieldCheck size={19}/><div><b>Private by design</b><p>Stream keys are encrypted in your database and never shown in this dashboard.</p></div></div><div className="ch-profile"><div>SF</div><span><b>My workspace</b><small>Multichannel studio</small></span></div></div>
+        <div className="ch-sidebar-bottom"><div className="ch-security"><ShieldCheck size={19}/><div><b>Private by design</b><p>Stream keys are encrypted in your database and never shown in this dashboard.</p></div></div><div className="ch-profile"><div>SF</div><span><b>My workspace</b><small>{multiChannelEnabled ? 'Multichannel studio' : 'Single-channel studio'}</small></span></div></div>
       </aside>
 
       <main className="ch-main">
         <header className="ch-topbar"><div className="ch-breadcrumb"><Link href="/">Workspace</Link><ChevronRight size={14}/><b>My Channels</b></div><div className="ch-top-right"><span><Database size={14}/> {configured ? 'MySQL connected' : 'Database setup'}</span><div className="ch-top-avatar">SF</div></div></header>
         <div className="ch-content">
-          <div className="ch-hero"><div><span className="ch-eyebrow"><span/> YOUR BROADCAST NETWORK</span><h1>One studio.<br/><em>Every channel.</em></h1><p>Create, configure and manage your YouTube channels from one beautiful workspace. Every setup step is saved directly to MySQL.</p><div className="ch-hero-meta"><span><ShieldCheck size={15}/> Encrypted credentials</span><span><Save size={15}/> Step-by-step saving</span></div></div><div className="ch-hero-art" aria-hidden="true"><div className="ch-orbit ch-orbit-one"/><div className="ch-orbit ch-orbit-two"/><div className="ch-center-orb"><Youtube size={39}/></div><div className="ch-orb-icon ch-orb-left"><Tv2 size={23}/></div><div className="ch-orb-icon ch-orb-right"><Radio size={23}/></div><div className="ch-art-label"><span className="ch-art-pulse"/> YOUR NETWORK</div></div></div>
+          <div className="ch-hero"><div><span className="ch-eyebrow"><span/> YOUR BROADCAST STUDIO</span><h1>One studio.<br/><em>{multiChannelEnabled ? 'Every channel.' : 'One channel.'}</em></h1><p>{multiChannelEnabled ? 'Create, configure and manage your YouTube channels from one beautiful workspace.' : 'Configure your single YouTube channel from your private .env or edit its saved profile here.'} Every setup step is saved directly to MySQL.</p><div className="ch-hero-meta"><span><ShieldCheck size={15}/> Encrypted credentials</span><span><Save size={15}/> Step-by-step saving</span></div></div><div className="ch-hero-art" aria-hidden="true"><div className="ch-orbit ch-orbit-one"/><div className="ch-orbit ch-orbit-two"/><div className="ch-center-orb"><Youtube size={39}/></div><div className="ch-orb-icon ch-orb-left"><Tv2 size={23}/></div><div className="ch-orb-icon ch-orb-right"><Radio size={23}/></div><div className="ch-art-label"><span className="ch-art-pulse"/> YOUR CHANNEL</div></div></div>
 
           {(error || notice) && <div role={error ? 'alert' : 'status'} className={'ch-toast ' + (error ? 'ch-toast-error' : '')}><span>{error ? <CircleAlert size={18}/> : <CheckCircle2 size={18}/>} {error || notice}</span><button onClick={() => { setError(''); setNotice(''); }} aria-label="Dismiss"><X size={17}/></button></div>}
 
@@ -239,10 +242,10 @@ export default function ChannelsPage() {
             <div className="ch-stat"><span className="ch-stat-icon ch-stat-red"><Radio size={19}/></span><span className="ch-stat-label">ACTIVE STREAMS</span><strong>{String(runningCount).padStart(2, '0')} <span>/ {limit}</span></strong><small>Device concurrency limit</small></div>
           </section>
 
-          <div className="ch-section-title"><div><span className="ch-overline">CHANNEL LIBRARY</span><h2>Your channels <span>({channels.length})</span></h2><p>Every channel gets its own destination, video and stream controls.</p></div><button className="ch-primary" onClick={create} disabled={!configured || busy === 'create'}>{busy === 'create' ? <LoaderCircle size={18} className="ch-spin"/> : <Plus size={19}/>} New channel</button></div>
-          <div className="ch-search"><Search size={18}/><input aria-label="Search channels" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search your channels..."/><span>{matching.length} channels</span></div>
+          <div className="ch-section-title"><div><span className="ch-overline">CHANNEL LIBRARY</span><h2>{multiChannelEnabled ? 'Your channels' : 'Your channel'} <span>({channels.length})</span></h2><p>{multiChannelEnabled ? 'Every channel gets its own destination, video and stream controls.' : 'Single channel mode is controlled by MULTI_CHANNEL_ENABLED=false in your private .env.'}</p></div>{multiChannelEnabled && <button className="ch-primary" onClick={create} disabled={!configured || busy === 'create'}>{busy === 'create' ? <LoaderCircle size={18} className="ch-spin"/> : <Plus size={19}/>} New channel</button>}</div>
+          {multiChannelEnabled && <div className="ch-search"><Search size={18}/><input aria-label="Search channels" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search your channels..."/><span>{matching.length} channels</span></div>}
 
-          {!channels.length && configured && <div className="ch-empty"><div className="ch-empty-icon"><Layers3 size={34}/></div><h3>Your next channel starts here.</h3><p>Follow four guided steps to add branding, connect YouTube, and set your streaming preferences.</p><button className="ch-primary" onClick={create}><Plus size={18}/> Create first channel</button></div>}
+          {!channels.length && configured && <div className="ch-empty"><div className="ch-empty-icon"><Layers3 size={34}/></div><h3>{multiChannelEnabled ? 'Your next channel starts here.' : 'Single-channel setup is pending.'}</h3><p>{multiChannelEnabled ? 'Follow four guided steps to add branding, connect YouTube, and set your streaming preferences.' : 'Set SINGLE_CHANNEL_NAME and SINGLE_CHANNEL_STREAM_KEY in your private .env and restart the API.'}</p>{multiChannelEnabled && <button className="ch-primary" onClick={create}><Plus size={18}/> Create first channel</button>}</div>}
           <div className="ch-card-grid">{matching.map((channel, index) => {
             const active = Boolean(channel.stream?.desiredRunning);
             return <button key={channel.id} onClick={() => setSelectedId(channel.id)} className={'ch-channel-card ' + (selectedId === channel.id ? 'ch-card-selected' : '')}>
