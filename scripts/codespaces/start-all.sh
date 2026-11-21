@@ -109,11 +109,13 @@ done
 start_session sf-cloud-window-manager 'DISPLAY=:99 openbox'
 
 # 7. Start password-protected VNC, browser-based noVNC and Instagram Chrome.
+# Use a normal browser window (tabs, address bar and navigation visible), not
+# kiosk/app mode. The collector can still open tabs through the private CDP port.
 # Ports 5900, 6080 and 9222 listen on 127.0.0.1 only (not public Internet).
 step '7/8' 'Starting x11vnc, noVNC and Instagram Chrome...'
 start_session sf-cloud-vnc "x11vnc -display :99 -localhost -rfbport 5900 -forever -shared -rfbauth '$HOME/.vnc/passwd'"
 start_session sf-cloud-web-vnc 'websockify --web=/usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900'
-start_session sf-cloud-browser "DISPLAY=:99 '$browser' --user-data-dir='$HOME/.streamforge-cloud-chromium' --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --window-position=0,0 --window-size=540,960 --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --kiosk --app='https://www.instagram.com/reels/'"
+start_session sf-cloud-browser "DISPLAY=:99 '$browser' --user-data-dir='$HOME/.streamforge-cloud-chromium' --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --window-position=0,0 --window-size=540,960 --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --new-window 'https://www.instagram.com/reels/'"
 
 # 8. Start the Node.js backend (including MariaDB-backed channel management).
 # Starting services is NOT starting YouTube Live: use the dashboard after login.
