@@ -4,10 +4,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Activity, ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, CircleAlert, CircleCheck, Clapperboard,
-  Clock3, ExternalLink, Eye, Instagram, Link2, ListVideo, LoaderCircle, Monitor, Play, Plus, Radio,
-  RefreshCw, Save, Search, Settings2, ShieldCheck, Square, Terminal, Trash2, Tv2, VolumeX, WandSparkles,
+  Clock3, ExternalLink, Eye, Instagram, Link2, ListVideo, LoaderCircle, Monitor, Play, Plus,
+  RefreshCw, Save, Search, Settings2, ShieldCheck, Square, Terminal, Trash2, Tv2, VolumeX,
+  RadioTower, SlidersHorizontal, Signal, Zap,
 } from 'lucide-react';
 import './instagram-live.css';
+import './instagram-live-studio.css';
 import MediaProbePanel from './MediaProbePanel';
 
 type Channel = { id: string; displayName: string; handle: string; ready: boolean; hasStreamKey: boolean; youtubeConnected: boolean };
@@ -305,33 +307,38 @@ export default function InstagramLivePage() {
       <main className="il-main">
         <header className="il-topbar"><div className="il-breadcrumb"><Link href="/channels"><ArrowLeft size={17}/> Channels</Link><span>/</span><b>Instagram Reels Live</b></div><span className="il-local-chip"><span/> PRIVATE BROWSER CONTROL</span></header>
         <div className="il-container">
-          <div className="il-hero"><div><p className="il-kicker"><WandSparkles size={15}/> REELS LIVE SOURCE</p><h1>Reels to <em>YouTube Live.</em></h1><p className="il-hero-copy">Stream your hand-picked Instagram Reels in order, or keep the original auto-scrolling feed. Your existing iPhone frame and audio settings stay the same.</p></div><div className="il-hero-icon"><Instagram size={45}/></div></div>
+          <div className="il-hero"><div><p className="il-kicker"><RadioTower size={15}/> Your broadcast workspace</p><h1>Live control room<span className="il-hero-period">.</span></h1><p className="il-hero-copy">Your stream, playlist, and next topic. Everything you need while the broadcast is running.</p></div>
+            <div className={`il-hero-transmission ${status?.running ? 'is-live' : ''}`}><span className="il-transmission-light"/><div><b>{status?.running ? 'Signal transmitting' : status?.starting ? 'Connecting signal' : 'Signal standby'}</b><small>{selected?.displayName || 'Choose a channel to begin'}</small></div><Signal size={25}/></div>
+          </div>
+
+          <nav className="il-jump-nav" aria-label="Studio sections"><a href="#il-live-control"><Monitor size={16}/> Live monitor</a>{runningDirect && <a className="il-nav-on-air" href="#il-live-queue"><ListVideo size={16}/> Switch videos</a>}<a href="#il-media-discovery"><Search size={16}/> Find videos</a><a href="#il-channel-setup"><SlidersHorizontal size={16}/> Setup</a><a href="#il-broadcast-settings"><Settings2 size={16}/> Output settings</a></nav>
 
           {error && <div role="alert" className="il-banner il-error"><CircleAlert size={18}/><span>{error}</span><button onClick={() => setError('')}>Dismiss</button></div>}
           {notice && <div role="status" className="il-banner il-notice"><CircleCheck size={18}/><span>{notice}</span><button onClick={() => setNotice('')}>Dismiss</button></div>}
 
-          <div className="il-overview">
+          <div className="il-overview" aria-label="Broadcast health">
             <div className="il-stat"><span className="il-stat-icon"><Monitor size={19}/></span><span>INSTAGRAM BROWSER</span><b>{browserReady ? 'Connected' : 'Not checked'}</b><small>Local Chromium :9222</small></div>
             <div className="il-stat"><span className="il-stat-icon il-purple"><Activity size={19}/></span><span>LIVE STATUS</span><b>{status?.running ? 'Broadcasting' : status?.starting ? 'Starting' : 'Offline'}</b><small>{status?.running ? `Started ${formatTime(status.startedAt)}` : 'Waiting for your command'}</small></div>
             <div className="il-stat"><span className="il-stat-icon il-orange"><RefreshCw size={19}/></span><span>REELS PLAYBACK</span><b>{status?.sourceMode === 'direct' ? 'Direct MP4' : status?.feed?.phase || 'Waiting'}</b><small>{status?.playlist ? status.sourceMode === 'direct' ? `${status.playlist.total} MP4 clips · ${status.playlist.loop ? 'Loop' : 'Once'}` : `Selected Reel ${status.playlist.current} of ${status.playlist.total} · ${status.playlist.loop ? 'Loop' : 'Once'}` : status?.feed?.activeId ? `Reel #${status.feed.activeId} · ${status.feed.currentTime || 0}s / ${status.feed.duration || '?'}s` : 'Feed or selected playlist'}</small></div>
           </div>
 
           <div className="il-layout">
-            <div className="il-left">
-              <section className="il-panel"><div className="il-panel-head"><div className="il-panel-icon"><Tv2 size={20}/></div><div><p>STEP 01</p><h2>Choose your channel</h2><span>Your existing YouTube channel and saved stream key.</span></div></div>
-                <label className="il-label" htmlFor="il-channel">YOUTUBE CHANNEL</label>
+            <div className="il-left" id="il-channel-setup">
+              <div className="il-setup-heading"><div><span>Settings and sources</span><h2>Prepare your stream</h2></div><SlidersHorizontal size={21}/></div>
+              <section className="il-panel"><div className="il-panel-head"><div className="il-panel-icon"><Tv2 size={20}/></div><div><p>01 / Destination</p><h2>Choose your channel</h2><span>Your YouTube profile and saved stream key.</span></div></div>
+                <label className="il-label" htmlFor="il-channel">YouTube channel</label>
                 <div className="il-select-wrap"><select id="il-channel" value={selectedId} onChange={(event) => { setSelectedId(event.target.value); setDirectMediaUrls([]); }}><option value="">Select a channel</option>{channels.map((item) => <option key={item.id} value={item.id}>{item.displayName || 'Untitled channel'}{!item.ready ? ' (setup incomplete)' : ''}</option>)}</select><ChevronDown size={18}/></div>
                 {selected && <p className="il-inline-note">{selected.ready && selected.hasStreamKey ? <CircleCheck size={16}/> : <CircleAlert size={16}/>} {selected.ready && selected.hasStreamKey ? 'Stream key securely saved in MySQL' : 'Complete channel setup in My Channels before streaming'} <Link href="/channels">Manage <ExternalLink size={13}/></Link></p>}
                 {channels.length === 0 && <p className="il-hint">No channels found. <Link href="/channels">Create your first YouTube channel profile</Link>.</p>}
               </section>
 
-              <section className="il-panel"><div className="il-panel-head"><div className="il-panel-icon il-magenta"><Instagram size={20}/></div><div><p>STEP 02</p><h2>Prepare mobile Reels</h2><span>Your private Chrome window is the video source.</span></div></div>
-                <div className="il-checklist"><div><span>1</span><p>Start your StreamForge services in Codespaces using <code>bash start-all.sh</code> and open the private noVNC Chrome desktop.</p></div><div><span>2</span><p>Sign in to Instagram in that Chrome window and open <b>Reels</b>. Keep the portrait X11 screen at <b>540 × 960</b> and remote debugging at <code>9222</code>.</p></div><div><span>3</span><p>For a custom playlist, open each <b>individual Reel</b> and save it in Step 03. Otherwise start with a Reel playing for the regular feed.</p></div></div>
+              <section className="il-panel"><div className="il-panel-head"><div className="il-panel-icon il-magenta"><Instagram size={20}/></div><div><p>02 / Instagram connection</p><h2>{settings?.sourceMode === 'direct' ? 'Browser for video search' : 'Prepare mobile Reels'}</h2><span>{settings?.sourceMode === 'direct' ? 'Chrome finds clips; Direct MP4 streams their media.' : 'Chrome supplies the screen capture.'}</span></div></div>
+                <div className="il-checklist"><div><span>1</span><p>Start your StreamForge services in Codespaces using <code>bash start-all.sh</code> and open the private noVNC Chrome desktop.</p></div><div><span>2</span><p>Sign in to Instagram in that Chrome window and open <b>Reels</b>. Keep the portrait X11 screen at <b>540 × 960</b> and remote debugging at <code>9222</code>.</p></div><div><span>3</span><p>{settings?.sourceMode === 'direct' ? 'Search for clips in the video discovery panel. Their direct MP4 links will become your live source.' : 'For a custom browser playlist, open each individual Reel and save it below. Or start with a Reel playing for the regular feed.'}</p></div></div>
                 <button type="button" className="il-secondary-btn" onClick={checkBrowser} disabled={busy === 'browser'}>{busy === 'browser' ? <LoaderCircle className="il-spin" size={17}/> : <RefreshCw size={17}/>} Check local browser</button>
                 <p className="il-hint">Check the video preview in YouTube Studio before going public. The browser check only finds your Instagram tab; your session stays in Chrome.</p>
               </section>
 
-              <section className="il-panel il-playlist-panel"><div className="il-panel-head"><div className="il-panel-icon il-purple"><ListVideo size={20}/></div><div><p>STEP 03</p><h2>Search &amp; Select Reels</h2><span>Build a private playlist for this YouTube channel. No bulk scraping or downloads.</span></div><span className="il-playlist-count">{playlist.length} / 60</span></div>
+              {settings?.sourceMode === 'browser' && <section className="il-panel il-playlist-panel"><div className="il-panel-head"><div className="il-panel-icon il-purple"><ListVideo size={20}/></div><div><p>03 / Browser playlist</p><h2>Select Reels</h2><span>Save Reels for screen-capture playback.</span></div><span className="il-playlist-count">{playlist.length} / 60</span></div>
                 {settings ? <div className="il-playlist-content">
                   <div className="il-source-modes" role="group" aria-label="Reels playback source">
                     <button type="button" aria-pressed={settings.playlistMode === 'feed'} className={settings.playlistMode === 'feed' ? 'il-mode-active' : ''} onClick={() => update('playlistMode', 'feed')}><RefreshCw size={16}/><span><b>Explore feed</b><small>Auto-scroll</small></span></button>
@@ -346,15 +353,11 @@ export default function InstagramLivePage() {
                   {runningHere && <p className="il-hint">Playlist editing is locked while streaming. Stop the livestream before changing the order.</p>}
                   <p className="il-hint">Only save Reels you have permission to rebroadcast. Instagram may block autoplay, remove content or require a fresh login; verify playback in noVNC.</p>
                 </div> : <p className="il-hint">Select a channel first to manage its playlist.</p>}
-              </section>
+              </section>}
 
-              <MediaProbePanel key={selectedId} request={request} onMediaUrlsChange={setDirectMediaUrls}
-                directActive={settings?.sourceMode === 'direct'} onDirectActiveChange={changeDirectMode}
-                liveLocked={(runningHere && !runningDirect) || Boolean(status?.starting)} liveDirect={runningDirect}/>
-
-              <section className="il-panel"><div className="il-panel-head"><div className="il-panel-icon il-purple"><Settings2 size={20}/></div><div><p>STEP 04</p><h2>Broadcast settings</h2><span>Changes automatically save to your MySQL channel profile.</span></div><div className="il-save-state">{saveState === 'saving' ? <><LoaderCircle size={14} className="il-spin"/> Saving</> : saveState === 'saved' ? <><Check size={14}/> Saved</> : <><Save size={14}/> Draft</>}</div></div>
+              <section className="il-panel" id="il-broadcast-settings"><div className="il-panel-head"><div className="il-panel-icon il-purple"><Settings2 size={20}/></div><div><p>03 / Broadcast output</p><h2>Output settings</h2><span>Your changes save automatically.</span></div><div className="il-save-state">{saveState === 'saving' ? <><LoaderCircle size={14} className="il-spin"/> Saving</> : saveState === 'saved' ? <><Check size={14}/> Saved</> : <><Save size={14}/> Draft</>}</div></div>
                 {settings ? <div className="il-fields"><div><label className="il-label" htmlFor="il-title">LIVE TITLE</label><input id="il-title" placeholder="e.g. Reels discovery live" maxLength={100} value={settings.title} onChange={(event) => update('title', event.target.value)}/></div><div><label className="il-label" htmlFor="il-desc">DESCRIPTION</label><textarea id="il-desc" rows={3} placeholder="Describe your livestream..." value={settings.description} onChange={(event) => update('description', event.target.value)}/></div>
-                  <div className="il-output-selector"><label className="il-label" htmlFor="il-stream-resolution">STREAM OUTPUT RESOLUTION</label>
+                  <div className="il-output-selector"><label className="il-label" htmlFor="il-stream-resolution">Stream output resolution</label>
                     <select id="il-stream-resolution" value={settings.streamResolution} onChange={(event) => update('streamResolution', event.target.value as Settings['streamResolution'])}>
                       <option value="source">Match capture size ({settings.captureWidth} × {settings.captureHeight})</option>
                       <option value="360x640">360p — 360 × 640 (low CPU)</option>
@@ -375,25 +378,41 @@ export default function InstagramLivePage() {
               </section>
             </div>
 
-            <div className="il-right"><section className="il-panel il-control"><div className="il-control-top"><span><Radio size={18}/> LIVE CONTROL</span><span className={status?.running ? 'il-live-badge' : 'il-offline-badge'}><span/>{status?.running ? 'ON AIR' : 'OFFLINE'}</span></div>
-                <div className="il-phone-preview"><div className="il-phone-notch"/>{previewEmbed
-                  ? <iframe className="il-youtube-preview" key={previewEmbed} src={previewEmbed} title="Actual YouTube livestream preview" allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin"/>
-                  : <div className="il-preview-inner"><Instagram size={42}/><h3>{settings?.sourceMode === 'direct' ? 'Direct MP4 playlist' : settings?.playlistMode === 'selected' ? 'Selected Reels playlist' : 'Instagram feed capture'}</h3><p>Enter your YouTube Live watch link below to preview the actual broadcast here. This placeholder does not show the FFmpeg output.</p><span className="il-preview-chip"><Eye size={15}/> Preview not connected</span></div>}
+            <div className="il-right">
+              <section className="il-panel il-control" id="il-live-control" aria-label="Live monitor and controls">
+                <div className="il-control-top"><div><span className="il-panel-kicker"><RadioTower size={15}/> Broadcast desk</span><h2>Live monitor</h2><p>Monitor the outgoing picture and control your stream.</p></div><span className={status?.running ? 'il-live-badge' : 'il-offline-badge'}><span/>{status?.running ? 'On air' : status?.starting ? 'Connecting' : 'Standby'}</span></div>
+                <div className="il-control-workspace">
+                  <div className="il-stage">
+                    <div className="il-stage-top"><span><span className={`il-stage-led ${status?.running ? 'is-live' : ''}`}/> Program feed</span><span>YouTube output</span></div>
+                    <div className="il-phone-preview"><div className="il-phone-notch"/>{previewEmbed
+                      ? <iframe className="il-youtube-preview" key={previewEmbed} src={previewEmbed} title="Actual YouTube livestream preview" allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin"/>
+                      : <div className="il-preview-inner"><Instagram size={37}/><h3>{settings?.sourceMode === 'direct' ? 'Direct video playlist' : settings?.playlistMode === 'selected' ? 'Selected Reels' : 'Instagram feed'}</h3><p>The actual YouTube picture appears here once you add its watch link.</p><span className="il-preview-chip"><Eye size={15}/> Awaiting preview</span></div>}
+                    </div>
+                    <div className="il-preview-meta"><span><Clock3 size={15}/> {status?.startedAt ? `Live since ${formatTime(status.startedAt)}` : 'Not streaming'}</span><span><Monitor size={15}/> {outputLabel}</span></div>
+                    <div className="il-stage-footer"><span>Preview follows YouTube&apos;s playback delay</span><span className="il-stage-bars"><i/><i/><i/><i/><i/></span></div>
+                  </div>
+                  <div className="il-transport-panel">
+                    <div className="il-transport-heading"><span><Zap size={17}/> Broadcast controls</span><small>{selected?.displayName || 'No channel selected'}</small></div>
+                    <div className="il-readiness">
+                      <div><span className={selected?.ready ? 'il-ready-mark' : 'il-waiting-mark'}>{selected?.ready ? <Check size={14}/> : <CircleAlert size={14}/>}</span><span>Channel</span><b>{selected?.ready ? 'Ready' : 'Setup needed'}</b></div>
+                      <div><span className={(runningDirect || settings?.sourceMode === 'browser' || directMediaUrls.length) ? 'il-ready-mark' : 'il-waiting-mark'}><ListVideo size={14}/></span><span>Video source</span><b>{runningDirect ? `${activeCount} live clips` : settings?.sourceMode === 'direct' ? `${directMediaUrls.length} collected` : 'Browser feed'}</b></div>
+                      <div><span className={rights ? 'il-ready-mark' : 'il-waiting-mark'}>{rights ? <Check size={14}/> : <ShieldCheck size={14}/>}</span><span>Permission</span><b>{rights ? 'Confirmed' : 'Required'}</b></div>
+                    </div>
+                    <label className="il-rights"><input type="checkbox" checked={rights} onChange={(event) => setRights(event.target.checked)}/><span><b>I have rights to rebroadcast this content and audio.</b><small>Only stream videos you own or are licensed to share.</small></span></label>
+                    {runningHere ? <button className="il-stop-btn" onClick={stop} disabled={Boolean(busy)}><Square size={18} fill="currentColor"/>{busy === 'stop' ? 'Stopping…' : 'Stop livestream'}</button> : <button className="il-start-btn" onClick={start} disabled={Boolean(startDisabledReason)}><Play size={19} fill="currentColor"/>{busy === 'start' ? 'Starting…' : runningElsewhere ? 'Another channel is live' : 'Start livestream'}</button>}
+                    {!runningHere && startDisabledReason && <p className="il-start-blocker" role="status">{startDisabledReason}</p>}
+                    {!runningHere && settings?.sourceMode === 'direct' && directMediaUrls.length > 0 && <p className="il-hint">{directMediaUrls.length} videos ready to stream.</p>}
+                    <p className="il-control-foot"><ShieldCheck size={14}/> Stream key remains encrypted on your server</p>
+                    <div className="il-preview-link-field"><label className="il-label" htmlFor="il-youtube-preview-link">YouTube preview link</label><input id="il-youtube-preview-link" type="url" placeholder="https://www.youtube.com/watch?v=..." value={status?.broadcast?.url || youtubePreviewLink} disabled={Boolean(status?.broadcast?.url)} onChange={(event) => {
+                      const value = event.target.value; setYoutubePreviewLink(value);
+                      if (selectedId) localStorage.setItem(`streamforge-youtube-preview-${selectedId}`, value);
+                    }}/><small>{previewEmbed ? 'Displaying the YouTube player. Private broadcasts may not support embedding.' : 'Paste the live watch link to monitor the real broadcast.'}</small></div>
+                    {status?.broadcast?.url && <a className="il-broadcast-link" href={status.broadcast.url} target="_blank" rel="noreferrer"><ExternalLink size={16}/> Open YouTube broadcast</a>}
+                  </div>
                 </div>
-                <div className="il-preview-link-field"><label className="il-label" htmlFor="il-youtube-preview-link">YOUTUBE LIVE WATCH LINK</label><input id="il-youtube-preview-link" type="url" placeholder="https://www.youtube.com/watch?v=..." value={status?.broadcast?.url || youtubePreviewLink} disabled={Boolean(status?.broadcast?.url)} onChange={(event) => {
-                  const value = event.target.value; setYoutubePreviewLink(value);
-                  if (selectedId) localStorage.setItem(`streamforge-youtube-preview-${selectedId}`, value);
-                }}/><small>{previewEmbed ? 'Showing the actual YouTube player (usually delayed). Private or non-embeddable broadcasts may not play here.' : 'Paste the YouTube Studio Live watch URL, or enable automatic event creation. This does not need your stream key.'}</small></div>
-                <div className="il-preview-meta"><span><Clock3 size={16}/> {status?.startedAt ? `Live since ${formatTime(status.startedAt)}` : 'Not streaming'}</span><span><Monitor size={16}/> Output {outputLabel}</span></div>
-                <label className="il-rights"><input type="checkbox" checked={rights} onChange={(event) => setRights(event.target.checked)}/><span><b>I have permission to rebroadcast these Reels and their audio.</b><small>Other accounts&apos; content can trigger copyright claims and platform enforcement. Only stream content you own or are licensed to share.</small></span></label>
-                {runningHere ? <button className="il-stop-btn" onClick={stop} disabled={Boolean(busy)}><Square size={18} fill="currentColor"/>{busy === 'stop' ? 'Stopping…' : 'Stop livestream'}</button> : <button className="il-start-btn" onClick={start} disabled={Boolean(startDisabledReason)}><Play size={19} fill="currentColor"/>{busy === 'start' ? 'Starting…' : runningElsewhere ? 'Another channel is live' : settings?.sourceMode === 'direct' ? 'Start Direct MP4 livestream' : 'Start Reels livestream'}</button>}
-                {!runningHere && startDisabledReason && <p className="il-start-blocker" role="status">{startDisabledReason}</p>}
-                {!runningHere && settings?.sourceMode === 'direct' && directMediaUrls.length > 0 && <p className="il-hint">Direct livestream playlist: {directMediaUrls.length} MP4 clips loaded.</p>}
-                <p className="il-control-foot"><ShieldCheck size={14}/> Your YouTube stream key stays encrypted in MySQL.</p>
-                {status?.broadcast?.url && <a className="il-broadcast-link" href={status.broadcast.url} target="_blank" rel="noreferrer"><ExternalLink size={16}/> View created YouTube live event</a>}
               </section>
-              {runningDirect && <section className="il-panel il-live-queue" aria-label="Live video switcher">
-                <div className="il-panel-head"><div className="il-panel-icon il-purple"><ListVideo size={19}/></div><div><p>ON-AIR PLAYLIST</p><h2>Control videos during live</h2><span>Select a video to restart playback from it.</span></div></div>
+              {runningDirect && <section className="il-panel il-live-queue" id="il-live-queue" aria-label="Live video switcher">
+                <div className="il-panel-head"><div className="il-panel-icon il-purple"><ListVideo size={19}/></div><div><p>Playback controls</p><h2>Choose the next video</h2><span>Restart from any clip in your active playlist.</span></div></div>
                 <p className="il-hint">Direct FFmpeg uses a fixed playlist. Every switch briefly reconnects to YouTube; the existing live event remains, but viewers may see buffering. The selected index is the <b>restart point</b>, not a real-time playhead.</p>
                 <div className="il-live-queue-summary"><span>{activeCount} videos in active playlist</span><span>Last restart: #{(status?.directControl?.lastSelectedIndex ?? 0) + 1}</span></div>
                 <div className="il-live-video-grid">{Array.from({ length: activeCount }, (_, index) => <button type="button" key={index}
@@ -404,11 +423,14 @@ export default function InstagramLivePage() {
                 </button>)}</div>
                 <button type="button" className="il-secondary-btn il-live-next" disabled={!activeCount || Boolean(busy) || !rights}
                   onClick={() => void switchDirectVideo(((status?.directControl?.lastSelectedIndex ?? 0) + 1) % activeCount)}><RefreshCw size={15}/> Next from last selected video</button>
-                <div className="il-live-replace"><b>Collected a new topic?</b><p>Search above while live, then apply those new MP4s to the broadcast. Your current playlist continues until you confirm.</p>
+                <div className="il-live-replace"><b>Ready for a new topic?</b><p>Find videos in the next panel, then apply your new list. The current videos keep playing until you confirm.</p>
                   <button type="button" className="il-start-btn" disabled={!directMediaUrls.length || Boolean(busy) || Boolean(status?.starting) || !rights}
                     onClick={() => void switchDirectVideo(0, true)}>{busy === 'switch' ? <LoaderCircle size={17} className="il-spin"/> : <RefreshCw size={17}/>} Replace live playlist ({directMediaUrls.length} videos)</button>
                 </div>
               </section>}
+              <MediaProbePanel key={selectedId} request={request} onMediaUrlsChange={setDirectMediaUrls}
+                directActive={settings?.sourceMode === 'direct'} onDirectActiveChange={changeDirectMode}
+                liveLocked={(runningHere && !runningDirect) || Boolean(status?.starting)} liveDirect={runningDirect}/>
               <section className="il-panel il-diagnostics"><div className="il-diagnostics-title"><Terminal size={19}/><h3>Live diagnostics</h3><button onClick={() => refresh().catch(() => {})}><RefreshCw size={15}/></button></div><div className="il-terminal">{status?.logs?.length ? status.logs.map((line, index) => <p key={index}><span>›</span> {line}</p>) : <p><span>›</span> Logs will appear when you start screen capture.</p>}{status?.error && <p className="il-terminal-error"><span>!</span> {status.error}</p>}</div></section>
               <div className="il-advice"><VolumeX size={21}/><p><b>First test: Private + silent audio.</b> Once video capture is confirmed in YouTube Studio, try PulseAudio. Streaming directly from a phone needs stable internet, power, and Termux background permissions.</p></div>
             </div>

@@ -165,20 +165,20 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
   }
 
   return (
-    <section className="il-panel il-media-probe">
+    <section className="il-panel il-media-probe" id="il-media-discovery">
       <div className="il-panel-head">
         <div className="il-panel-icon il-magenta"><FlaskConical size={20}/></div>
-        <div><p>DIRECT MEDIA STUDIO</p><h2>Find Instagram videos automatically</h2>
-          <span>Search keyword + number of videos. Collect playable MP4 links into your direct FFmpeg playlist.</span></div>
+        <div><p>Video discovery</p><h2>Find videos for your stream</h2>
+          <span>Search Instagram by topic, then collect clips for a new live playlist.</span></div>
       </div>
       <div className="il-playlist-fields">
         <div className="il-auto-collector">
           <div className="il-two-cols">
-            <div><label className="il-label" htmlFor="il-search-keyword">CONTENT TITLE / SEARCH KEYWORD</label>
+            <div><label className="il-label" htmlFor="il-search-keyword">Topic or search keyword</label>
               <input id="il-search-keyword" type="text" maxLength={80} placeholder="e.g. naruto, puzzles, woodworking"
                 value={searchKeyword} onChange={(event) => setSearchKeyword(event.target.value)}
                 disabled={liveLocked || collectBusy || collector?.phase === 'running'}/></div>
-            <div><label className="il-label" htmlFor="il-search-count">NUMBER OF VIDEOS (1–100)</label>
+            <div><label className="il-label" htmlFor="il-search-count">Number of videos (1–100)</label>
               <input id="il-search-count" type="number" min={1} max={100} value={searchCount}
                 onChange={(event) => setSearchCount(Number(event.target.value))}
                 disabled={liveLocked || collectBusy || collector?.phase === 'running'}/></div>
@@ -201,7 +201,7 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
           <p className="il-hint">Uses only your signed-in private Chrome session and visible Instagram Search results. Results depend on what Instagram loads; the requested count is not guaranteed. No login or CAPTCHA bypass.</p>
           {liveDirect && <p className="il-hint"><b>The current live keeps playing while you search.</b> Once new videos are collected, click Replace live playlist in Live Control to switch. Switching reconnects the encoder briefly.</p>}
         </div>
-        <div><label className="il-label" htmlFor="il-media-url">EXTRACTED INSTAGRAM VIDEO URL</label>
+        <div><label className="il-label" htmlFor="il-media-url">Selected Instagram video URL</label>
           <div className="il-url-input"><Link2 size={17}/>
             <input id="il-media-url" type="url" autoComplete="off" spellCheck={false}
               placeholder="https://instagram...fbcdn.net/...mp4?..." value={url}
@@ -218,7 +218,7 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
           }}/>
         </label>
         {imported.length > 0 && <button type="button" className="il-media-copy" onClick={exportJson}><Upload size={15}/> Download collected JSON ({imported.length})</button>}
-        {imported.length > 0 && <div><label className="il-label" htmlFor="il-imported-video">IMPORTED DIRECT URLS · {imported.length}</label>
+        {imported.length > 0 && <div><label className="il-label" htmlFor="il-imported-video">Collected video URLs · {imported.length}</label>
           <select id="il-imported-video" value={imported.includes(url) ? url : ''} disabled={busy || liveLocked}
             onChange={(event) => { setUrl(event.target.value); setResult(null); setError(''); setCopied(false); }}>
             <option value="">Choose a collected video</option>
