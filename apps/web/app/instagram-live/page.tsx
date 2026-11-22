@@ -26,7 +26,22 @@ type Status = {
   feed: { phase: string; activeId: number | null; currentTime: number | null; duration: number | null } | null;
   playlist: { current: number | null; total: number; loop: boolean; reelUrl: string | null } | null;
   error: string | null; logs: string[]; broadcast: { title: string; url: string } | null;
+  directControl?: { count: number; lastSelectedIndex: number } | null;
 };
+
+function youtubeLiveEmbedUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    let id = '';
+    if (host === 'youtu.be' || host === 'www.youtu.be') id = url.pathname.split('/')[1] || '';
+    else if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(host)) {
+      id = url.pathname === '/watch' ? url.searchParams.get('v') || ''
+        : /^\/(?:live|embed)\//.test(url.pathname) ? url.pathname.split('/')[2] : '';
+    }
+    return /^[A-Za-z0-9_-]{11}$/.test(id) ? `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1` : '';
+  } catch { return ''; }
+}
 
 const formatTime = (value: string | null) => {
   if (!value) return 'Not started';
@@ -44,6 +59,8 @@ export default function InstagramLivePage() {
   const [browserReady, setBrowserReady] = useState(false);
   const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
   const [directMediaUrls, setDirectMediaUrls] = useState<string[]>([]);
+  const [livePlaylistUrls, setLivePlaylistUrls] = useState<string[]>([]);
+  const [youtubePreviewLink, setYoutubePreviewLink] = useState('');
   const [playlistLoadedId, setPlaylistLoadedId] = useState('');
   const [reelUrl, setReelUrl] = useState('');
   const [reelLabel, setReelLabel] = useState('');
@@ -108,6 +125,11 @@ export default function InstagramLivePage() {
   }, [selectedId, baseUrl, request]);
 
   useEffect(() => {
+    if (!selectedId) { setYoutubePreviewLink(''); return; }
+    setYoutubePreviewLink(localStorage.getItem(`streamforge-youtube-preview-${selectedId}`) || '');
+  }, [selectedId]);
+
+  useEffect(() => {
     if (!selectedId || !baseUrl) { setPlaylist([]); setPlaylistLoadedId(''); return; }
     let cancelled = false;
     setPlaylist([]); setPlaylistLoadedId('');
@@ -132,6 +154,7 @@ export default function InstagramLivePage() {
 
   const selected = channels.find((item) => item.id === selectedId) || null;
   const runningHere = Boolean(status?.running && status.activeChannelId === selectedId);
+  const runningDirect = Boolean(runningHere && status?.sourceMode === 'direct');
   const runningElsewhere = Boolean((status?.running || status?.starting) && status.activeChannelId !== selectedId);
   const playlistReady = Boolean(selectedId && playlistLoadedId === selectedId);
   const playlistLocked = playlistBusy || !playlistReady || runningHere || Boolean(status?.starting);
@@ -223,6 +246,7 @@ export default function InstagramLivePage() {
           ...(settings.sourceMode === 'direct' ? { mediaUrls: directMediaUrls } : {}) }),
       });
       setStatus(live);
+      if (settings.sourceMode === 'direct') setLivePlaylistUrls([...directMediaUrls]);
       setNotice(settings.sourceMode === 'direct'
         ? `Direct FFmpeg playlist started (${directMediaUrls.length} MP4s). Check YouTube Studio — VNC is not the source.`
         : 'FFmpeg screen capture started. Confirm live video and audio in YouTube Studio.');
@@ -238,6 +262,27 @@ export default function InstagramLivePage() {
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(''); }
   }
+
+  async function switchDirectVideo(startIndex: number, replacePlaylist = false) {
+    if (!selectedId || !runningDirect || !rights) {
+      setError('Confirm rebroadcast rights and start a Direct MP4 livestream before switching.'); return;
+    }
+    setBusy('switch'); setError(''); setNotice('');
+    try {
+      const live = await request<Status>(`/api/instagram-live/${selectedId}/direct/switch`, {
+        method: 'POST', body: JSON.stringify({ rightsConfirmed: true, startIndex,
+          ...(replacePlaylist ? { mediaUrls: directMediaUrls } : {}) }),
+      });
+      setStatus(live);
+      if (replacePlaylist) setLivePlaylistUrls([...directMediaUrls]);
+      setNotice(replacePlaylist ? `New topic playlist is live (${directMediaUrls.length} videos).`
+        : `Encoder restarted from video ${startIndex + 1}. YouTube may briefly buffer during the switch.`);
+    } catch (cause) { setError((cause as Error).message); await refresh().catch(() => {}); }
+    finally { setBusy(''); }
+  }
+
+  const activeCount = runningDirect ? status?.directControl?.count || livePlaylistUrls.length : 0;
+  const previewEmbed = youtubeLiveEmbedUrl(status?.broadcast?.url || youtubePreviewLink);
 
   return (
     <div className="il-root">
@@ -298,7 +343,7 @@ export default function InstagramLivePage() {
 
               <MediaProbePanel key={selectedId} request={request} onMediaUrlsChange={setDirectMediaUrls}
                 directActive={settings?.sourceMode === 'direct'} onDirectActiveChange={changeDirectMode}
-                liveLocked={runningHere || Boolean(status?.starting)}/>
+                liveLocked={(runningHere && !runningDirect) || Boolean(status?.starting)} liveDirect={runningDirect}/>
 
               <section className="il-panel"><div className="il-panel-head"><div className="il-panel-icon il-purple"><Settings2 size={20}/></div><div><p>STEP 04</p><h2>Broadcast settings</h2><span>Changes automatically save to your MySQL channel profile.</span></div><div className="il-save-state">{saveState === 'saving' ? <><LoaderCircle size={14} className="il-spin"/> Saving</> : saveState === 'saved' ? <><Check size={14}/> Saved</> : <><Save size={14}/> Draft</>}</div></div>
                 {settings ? <div className="il-fields"><div><label className="il-label" htmlFor="il-title">LIVE TITLE</label><input id="il-title" placeholder="e.g. Reels discovery live" maxLength={100} value={settings.title} onChange={(event) => update('title', event.target.value)}/></div><div><label className="il-label" htmlFor="il-desc">DESCRIPTION</label><textarea id="il-desc" rows={3} placeholder="Describe your livestream..." value={settings.description} onChange={(event) => update('description', event.target.value)}/></div>
@@ -313,7 +358,14 @@ export default function InstagramLivePage() {
             </div>
 
             <div className="il-right"><section className="il-panel il-control"><div className="il-control-top"><span><Radio size={18}/> LIVE CONTROL</span><span className={status?.running ? 'il-live-badge' : 'il-offline-badge'}><span/>{status?.running ? 'ON AIR' : 'OFFLINE'}</span></div>
-                <div className="il-phone-preview"><div className="il-phone-notch"/><div className="il-preview-inner"><Instagram size={42}/><h3>{settings?.sourceMode === 'direct' ? 'Direct MP4 playlist' : settings?.playlistMode === 'selected' ? 'Selected Reels playlist' : 'Instagram feed capture'}</h3><p>{settings?.sourceMode === 'direct' ? `${status?.playlist?.total ?? directMediaUrls.length} direct MP4 clips. FFmpeg streams them without Chrome/VNC capture.` : status?.playlist ? `Playing Reel ${status.playlist.current} of ${status.playlist.total}.` : 'Playback appears in your private noVNC Chrome desktop. Check YouTube Studio for the actual broadcast preview.'}</p><span className="il-preview-chip"><Eye size={15}/> {settings?.sourceMode === 'direct' ? 'Source · Direct MP4' : 'Screen source · X11'}</span></div></div>
+                <div className="il-phone-preview"><div className="il-phone-notch"/>{previewEmbed
+                  ? <iframe className="il-youtube-preview" key={previewEmbed} src={previewEmbed} title="Actual YouTube livestream preview" allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin"/>
+                  : <div className="il-preview-inner"><Instagram size={42}/><h3>{settings?.sourceMode === 'direct' ? 'Direct MP4 playlist' : settings?.playlistMode === 'selected' ? 'Selected Reels playlist' : 'Instagram feed capture'}</h3><p>Enter your YouTube Live watch link below to preview the actual broadcast here. This placeholder does not show the FFmpeg output.</p><span className="il-preview-chip"><Eye size={15}/> Preview not connected</span></div>}
+                </div>
+                <div className="il-preview-link-field"><label className="il-label" htmlFor="il-youtube-preview-link">YOUTUBE LIVE WATCH LINK</label><input id="il-youtube-preview-link" type="url" placeholder="https://www.youtube.com/watch?v=..." value={status?.broadcast?.url || youtubePreviewLink} disabled={Boolean(status?.broadcast?.url)} onChange={(event) => {
+                  const value = event.target.value; setYoutubePreviewLink(value);
+                  if (selectedId) localStorage.setItem(`streamforge-youtube-preview-${selectedId}`, value);
+                }}/><small>{previewEmbed ? 'Showing the actual YouTube player (usually delayed). Private or non-embeddable broadcasts may not play here.' : 'Paste the YouTube Studio Live watch URL, or enable automatic event creation. This does not need your stream key.'}</small></div>
                 <div className="il-preview-meta"><span><Clock3 size={16}/> {status?.startedAt ? `Live since ${formatTime(status.startedAt)}` : 'Not streaming'}</span><span><Monitor size={16}/> {settings ? `${settings.captureWidth} × ${settings.captureHeight}` : '—'}</span></div>
                 <label className="il-rights"><input type="checkbox" checked={rights} onChange={(event) => setRights(event.target.checked)}/><span><b>I have permission to rebroadcast these Reels and their audio.</b><small>Other accounts&apos; content can trigger copyright claims and platform enforcement. Only stream content you own or are licensed to share.</small></span></label>
                 {runningHere ? <button className="il-stop-btn" onClick={stop} disabled={Boolean(busy)}><Square size={18} fill="currentColor"/>{busy === 'stop' ? 'Stopping…' : 'Stop livestream'}</button> : <button className="il-start-btn" onClick={start} disabled={Boolean(startDisabledReason)}><Play size={19} fill="currentColor"/>{busy === 'start' ? 'Starting…' : runningElsewhere ? 'Another channel is live' : settings?.sourceMode === 'direct' ? 'Start Direct MP4 livestream' : 'Start Reels livestream'}</button>}
@@ -322,6 +374,23 @@ export default function InstagramLivePage() {
                 <p className="il-control-foot"><ShieldCheck size={14}/> Your YouTube stream key stays encrypted in MySQL.</p>
                 {status?.broadcast?.url && <a className="il-broadcast-link" href={status.broadcast.url} target="_blank" rel="noreferrer"><ExternalLink size={16}/> View created YouTube live event</a>}
               </section>
+              {runningDirect && <section className="il-panel il-live-queue" aria-label="Live video switcher">
+                <div className="il-panel-head"><div className="il-panel-icon il-purple"><ListVideo size={19}/></div><div><p>ON-AIR PLAYLIST</p><h2>Control videos during live</h2><span>Select a video to restart playback from it.</span></div></div>
+                <p className="il-hint">Direct FFmpeg uses a fixed playlist. Every switch briefly reconnects to YouTube; the existing live event remains, but viewers may see buffering. The selected index is the <b>restart point</b>, not a real-time playhead.</p>
+                <div className="il-live-queue-summary"><span>{activeCount} videos in active playlist</span><span>Last restart: #{(status?.directControl?.lastSelectedIndex ?? 0) + 1}</span></div>
+                <div className="il-live-video-grid">{Array.from({ length: activeCount }, (_, index) => <button type="button" key={index}
+                  className={status?.directControl?.lastSelectedIndex === index ? 'il-live-video-current' : ''}
+                  disabled={Boolean(busy) || Boolean(status?.starting) || !rights}
+                  title={`Restart streaming from video ${index + 1}`} onClick={() => void switchDirectVideo(index)}>
+                  <Play size={13}/> Video {index + 1}
+                </button>)}</div>
+                <button type="button" className="il-secondary-btn il-live-next" disabled={!activeCount || Boolean(busy) || !rights}
+                  onClick={() => void switchDirectVideo(((status?.directControl?.lastSelectedIndex ?? 0) + 1) % activeCount)}><RefreshCw size={15}/> Next from last selected video</button>
+                <div className="il-live-replace"><b>Collected a new topic?</b><p>Search above while live, then apply those new MP4s to the broadcast. Your current playlist continues until you confirm.</p>
+                  <button type="button" className="il-start-btn" disabled={!directMediaUrls.length || Boolean(busy) || Boolean(status?.starting) || !rights}
+                    onClick={() => void switchDirectVideo(0, true)}>{busy === 'switch' ? <LoaderCircle size={17} className="il-spin"/> : <RefreshCw size={17}/>} Replace live playlist ({directMediaUrls.length} videos)</button>
+                </div>
+              </section>}
               <section className="il-panel il-diagnostics"><div className="il-diagnostics-title"><Terminal size={19}/><h3>Live diagnostics</h3><button onClick={() => refresh().catch(() => {})}><RefreshCw size={15}/></button></div><div className="il-terminal">{status?.logs?.length ? status.logs.map((line, index) => <p key={index}><span>›</span> {line}</p>) : <p><span>›</span> Logs will appear when you start screen capture.</p>}{status?.error && <p className="il-terminal-error"><span>!</span> {status.error}</p>}</div></section>
               <div className="il-advice"><VolumeX size={21}/><p><b>First test: Private + silent audio.</b> Once video capture is confirmed in YouTube Studio, try PulseAudio. Streaming directly from a phone needs stable internet, power, and Termux background permissions.</p></div>
             </div>

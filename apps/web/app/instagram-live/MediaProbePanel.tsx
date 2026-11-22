@@ -29,9 +29,10 @@ type MediaProbeProps = {
   directActive: boolean;
   onDirectActiveChange: (active: boolean) => void;
   liveLocked: boolean;
+  liveDirect: boolean;
 };
 
-export default function MediaProbePanel({ request, onMediaUrlsChange, directActive, onDirectActiveChange, liveLocked }: MediaProbeProps) {
+export default function MediaProbePanel({ request, onMediaUrlsChange, directActive, onDirectActiveChange, liveLocked, liveDirect }: MediaProbeProps) {
   const [url, setUrl] = useState('');
   const [imported, setImported] = useState<string[]>([]);
   const [importWarning, setImportWarning] = useState('');
@@ -198,6 +199,7 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
             {collector.error && <p className="il-collector-error">{collector.error}</p>}
           </div>}
           <p className="il-hint">Uses only your signed-in private Chrome session and visible Instagram Search results. Results depend on what Instagram loads; the requested count is not guaranteed. No login or CAPTCHA bypass.</p>
+          {liveDirect && <p className="il-hint"><b>The current live keeps playing while you search.</b> Once new videos are collected, click Replace live playlist in Live Control to switch. Switching reconnects the encoder briefly.</p>}
         </div>
         <div><label className="il-label" htmlFor="il-media-url">EXTRACTED INSTAGRAM VIDEO URL</label>
           <div className="il-url-input"><Link2 size={17}/>
@@ -224,13 +226,13 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
           </select>
           <p className="il-hint">This dropdown chooses just the clip to <b>test</b>. Direct livestream mode plays <b>all {imported.length} imported clips</b> in JSON order.</p>
         </div>}
-        <label className="il-option"><input type="checkbox" checked={directActive} disabled={liveLocked}
+        <label className="il-option"><input type="checkbox" checked={directActive} disabled={liveLocked || liveDirect}
           onChange={(event) => onDirectActiveChange(event.target.checked)}/>
           <span><b>Use these MP4 links as YouTube Live source</b>
             <small>{directActive ? 'Direct FFmpeg playlist mode ON — Start livestream will stream these MP4s, NOT the VNC browser.'
               : 'OFF — Start livestream still captures the Chrome/VNC screen.'}</small></span>
         </label>
-        {directActive && <p className="il-hint"><b>{imported.length || (url.trim() ? 1 : 0)} MP4(s) ready.</b> Import a fresh JSON playlist before starting. The list is sent only when you click Start; missing/expired URLs will interrupt the direct stream. For best reliability, use clips with consistent video and audio tracks.</p>}
+        {directActive && <p className="il-hint"><b>{imported.length || (url.trim() ? 1 : 0)} MP4(s) ready.</b> {liveDirect ? 'These are your proposed next clips. The active stream is unchanged until you click Replace live playlist.' : 'Import a fresh JSON playlist before starting.'} Signed links can expire; for best reliability use clips with consistent video and audio tracks.</p>}
         {importWarning && <p className="il-hint" role="status">{importWarning}</p>}
         {url && <button type="button" className="il-media-copy" disabled={busy} onClick={async () => {
           try { await navigator.clipboard.writeText(url); setCopied(true); }

@@ -143,6 +143,8 @@ export class InstagramLiveManager {
     this.playlistState = null;
     this.sourceMode = null;
     this.mediaTempDir = null;
+    this.directMediaUrls = [];
+    this.directStartIndex = 0;
   }
 
   async initialize() {
@@ -184,7 +186,10 @@ export class InstagramLiveManager {
       activeChannelId: this.activeChannelId, startedAt: this.startedAt,
       feed: this.feedState ? { phase: this.feedState.phase, activeId: this.feedState.activeId,
         currentTime: this.feedState.currentTime, duration: this.feedState.duration } : null,
-      playlist: this.playlistState, error: this.error, logs: this.logs, broadcast: this.broadcast };
+      playlist: this.playlistState, error: this.error, logs: this.logs, broadcast: this.broadcast,
+      directControl: this.sourceMode === 'direct' ? {
+        count: this.directMediaUrls.length, lastSelectedIndex: this.directStartIndex,
+      } : null };
   }
 
   async browserStatus() {
@@ -220,6 +225,8 @@ export class InstagramLiveManager {
     this.broadcast = null;
     this.feedState = null;
     this.sourceMode = settings.sourceMode;
+    this.directMediaUrls = directUrls;
+    this.directStartIndex = 0;
     this.playlistState = directUrls.length ? { current: null, total: directUrls.length,
       loop: settings.playlistLoop, reelUrl: null } : chosenReels.length ? { current: 1, total: chosenReels.length,
       loop: settings.playlistLoop, reelUrl: chosenReels[0].reelUrl } : null;
@@ -286,6 +293,8 @@ export class InstagramLiveManager {
         this.sourceMode = null;
         this.startedAt = null;
         this.playlistState = null;
+        this.directMediaUrls = [];
+        this.directStartIndex = 0;
       });
       await new Promise((resolve, reject) => {
         child.once('spawn', resolve);
@@ -304,6 +313,92 @@ export class InstagramLiveManager {
       await this.stop();
       throw error;
     } finally { this.starting = false; }
+  }
+
+  // FFmpeg's concat demuxer reads a fixed manifest. To change its input while
+  // live, replace the encoder, keeping the existing YouTube event and stream
+  // key. This causes a brief ingest gap; it is NOT a seamless frame-level cut.
+  async switchDirect(id, rightsConfirmed, mediaUrls, startIndex = 0) {
+    if (rightsConfirmed !== true) throw new ChannelError('Confirm you have rights to broadcast the replacement videos', 400);
+    if (this.sourceMode !== 'direct' || this.activeChannelId !== id || !this.process) {
+      throw new ChannelError('Start a Direct MP4 livestream on this channel before switching videos', 409);
+    }
+    if (this.starting) throw new ChannelError('Wait for the current encoder change to finish', 409);
+    if (this.mediaCollector.phase === 'running') throw new ChannelError('Wait for the new topic search to finish before switching', 409);
+    const urls = mediaUrls === undefined ? this.directMediaUrls : validateDirectMediaPlaylist(mediaUrls);
+    if (!urls.length) throw new ChannelError('No active direct MP4 playlist is available; collect a new one', 409);
+    if (!Number.isInteger(startIndex) || startIndex < 0 || startIndex >= urls.length) {
+      throw new ChannelError('Choose a video number within the playlist', 400);
+    }
+    this.starting = true;
+    let replacedEncoder = false;
+    try {
+      const channel = await this.store.get(id);
+      const key = await this.store.getStreamKey(id);
+      const settings = { ...(await this.getSettings(id)), sourceMode: 'direct' };
+      if (this.sourceMode !== 'direct' || this.activeChannelId !== id || !this.process) {
+        throw new ChannelError('The original livestream ended before the switch could start', 409);
+      }
+      const previous = this.process;
+      this.process = null; // The old exit handler must not clear the active session.
+      replacedEncoder = true;
+      await new Promise((resolve) => {
+        let settled = false;
+        let timer;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve();
+        };
+        previous.once('exit', finish);
+        previous.once('close', finish);
+        timer = setTimeout(() => { previous.kill('SIGKILL'); finish(); }, 4000);
+        previous.kill('SIGTERM');
+        if (previous.exitCode !== null && previous.exitCode !== undefined) finish();
+      });
+      await this.cleanupMediaManifest();
+      const ordered = settings.playlistLoop
+        ? [...urls.slice(startIndex), ...urls.slice(0, startIndex)] : urls.slice(startIndex);
+      this.mediaTempDir = await mkdtemp(join(tmpdir(), 'streamforge-direct-'));
+      const manifestPath = join(this.mediaTempDir, 'playlist.ffconcat');
+      await writeFile(manifestPath, directMediaManifest(ordered), { mode: 0o600, flag: 'wx' });
+      const args = buildDirectMediaFfmpegArgs(settings, channel.ingestUrl, key, manifestPath, IPHONE_FRAME);
+      const child = this.spawnProcess('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      this.process = child;
+      child.stderr?.on('data', (chunk) => {
+        for (const line of String(chunk).split('\n').filter(Boolean)) this.appendLog(safeFfmpegMessage(line, key));
+      });
+      child.once('exit', (code) => {
+        if (this.process !== child) return;
+        this.process = null;
+        this.cleanupMediaManifest().catch(() => {});
+        this.activeChannelId = null;
+        this.sourceMode = null;
+        this.startedAt = null;
+        this.playlistState = null;
+        this.directMediaUrls = [];
+        this.directStartIndex = 0;
+        this.error ||= `FFmpeg exited${code === null ? '' : ` (code ${code})`}. Check media URLs and RTMPS connection.`;
+      });
+      await new Promise((resolve, reject) => {
+        child.once('spawn', resolve);
+        child.once('error', reject);
+      });
+      this.directMediaUrls = urls;
+      this.directStartIndex = startIndex;
+      this.playlistState = { current: null, total: urls.length, loop: settings.playlistLoop, reelUrl: null };
+      this.error = null;
+      this.appendLog(`${mediaUrls === undefined ? 'Video selection' : 'New topic playlist'}: encoder reconnected, starting at video ${startIndex + 1}/${urls.length}. YouTube may briefly buffer.`);
+      return this.getStatus();
+    } catch (error) {
+      // If validation/DB lookups failed, the previous encoder is still live.
+      // After stopping it, however, a failed replacement must clean up.
+      if (replacedEncoder) await this.stop();
+      throw error;
+    } finally {
+      this.starting = false;
+    }
   }
 
   fail(message) {
@@ -331,6 +426,8 @@ export class InstagramLiveManager {
     this.feedState = null;
     this.playlistState = null;
     this.sourceMode = null;
+    this.directMediaUrls = [];
+    this.directStartIndex = 0;
     await watcher?.stop();
     await this.cleanupMediaManifest();
     return this.getStatus();
@@ -359,7 +456,9 @@ export function registerInstagramLiveRoutes(app, { manager, localOnly }) {
     await manager.mediaProber.probe(req.body?.url, { decode: req.body?.decode ?? false })
   ));
   app.post('/api/instagram-live/media/collect/start', (req, res) => {
-    if (manager.process || manager.starting) throw new ChannelError('Stop the active livestream before collecting Instagram search videos', 409);
+    if ((manager.process || manager.starting) && manager.sourceMode !== 'direct') {
+      throw new ChannelError('Stop the browser-capture livestream before collecting Instagram search videos', 409);
+    }
     res.status(202).json(manager.mediaCollector.start(req.body));
   });
   app.get('/api/instagram-live/media/collect/status', (_req, res) => res.json(manager.mediaCollector.status()));
@@ -380,6 +479,9 @@ export function registerInstagramLiveRoutes(app, { manager, localOnly }) {
   app.get('/api/instagram-live/:id', async (req, res) => res.json(await manager.getSettings(req.params.id)));
   app.put('/api/instagram-live/:id', async (req, res) => res.json(await manager.saveSettings(req.params.id, req.body)));
   app.post('/api/instagram-live/:id/start', async (req, res) => res.status(202).json(await manager.start(req.params.id, req.body?.rightsConfirmed, req.body?.mediaUrls)));
+  app.post('/api/instagram-live/:id/direct/switch', async (req, res) => res.status(202).json(
+    await manager.switchDirect(req.params.id, req.body?.rightsConfirmed, req.body?.mediaUrls, req.body?.startIndex ?? 0)
+  ));
   app.post('/api/instagram-live/:id/stop', async (req, res) => {
     if (manager.activeChannelId && manager.activeChannelId !== req.params.id) throw new ChannelError('Another Instagram channel owns the current live feed', 409);
     res.json(await manager.stop());

@@ -77,6 +77,57 @@ test('direct media mode uses no browser, keeps URL secrets private and removes m
   await assert.rejects(() => stat(manifestPath), { code: 'ENOENT' });
 });
 
+test('switching a direct livestream restarts at the chosen clip and keeps the YouTube event', async () => {
+  const manifests = [];
+  const children = [];
+  const settings = validateInstagramSettings({ sourceMode: 'direct', playlistLoop: true });
+  const manager = new InstagramLiveManager({
+    store: {
+      pool: { execute: async () => [[{ settings_json: settings }]] },
+      get: async () => ({ completedAt: new Date(), streamKeySecret: 'encrypted', ingestUrl: 'rtmps://a.rtmps.youtube.com/live2' }),
+      getPublic: async () => ({ defaultTitle: '', defaultDescription: '', privacy: 'private' }),
+      getStreamKey: async () => 'PRIVATE_YOUTUBE_KEY',
+    },
+    studio: { runningCount: () => 0, maxStreams: 1 },
+    makeController: () => { throw new Error('A direct switch must not use the Chrome screen'); },
+    spawnProcess: (_name, args) => {
+      manifests.push(args[args.indexOf('-f') + 3]);
+      const child = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => { child.exitCode = 0; child.emit('exit', 0); };
+      children.push(child);
+      process.nextTick(() => child.emit('spawn'));
+      return child;
+    },
+  });
+  await assert.rejects(() => manager.switchDirect('id', true, undefined, 0), /Start a Direct MP4/);
+  await manager.start('id', true, [FIRST, SECOND]);
+  const startedAt = manager.startedAt;
+  manager.broadcast = { title: 'Existing live', url: 'https://www.youtube.com/watch?v=abcdefghijk' };
+  await assert.rejects(() => manager.switchDirect('id', false, undefined, 1), /rights/);
+  await assert.rejects(() => manager.switchDirect('id', true, undefined, 2), /within/);
+
+  const switched = await manager.switchDirect('id', true, undefined, 1);
+  assert.equal(switched.running, true);
+  assert.equal(switched.activeChannelId, 'id');
+  assert.equal(switched.startedAt, startedAt);
+  assert.equal(switched.broadcast.title, 'Existing live');
+  assert.deepEqual(switched.directControl, { count: 2, lastSelectedIndex: 1 });
+  assert.equal(children.length, 2);
+  assert.equal(children[0].exitCode, 0);
+  assert.match(await readFile(manifests[1], 'utf8'), /clip2\.mp4[^\n]*\nfile '[^']*clip1\.mp4/);
+  await assert.rejects(() => stat(manifests[0]), { code: 'ENOENT' });
+
+  const replaced = await manager.switchDirect('id', true, [SECOND], 0);
+  assert.deepEqual(replaced.directControl, { count: 1, lastSelectedIndex: 0 });
+  assert.equal(replaced.playlist.total, 1);
+  assert.equal(children.length, 3);
+  assert.ok(!JSON.stringify(replaced).includes('PRIVATE_TOKEN'));
+  assert.ok(!JSON.stringify(replaced).includes('PRIVATE_YOUTUBE_KEY'));
+  await manager.stop();
+  await assert.rejects(() => stat(manifests[2]), { code: 'ENOENT' });
+});
+
 test('FFmpeg concat playlist decodes two compatible local MP4s in sequence', async (t) => {
   if (spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status !== 0) return t.skip('FFmpeg not installed');
   const dir = await mkdtemp(join(tmpdir(), 'streamforge-concat-test-'));
