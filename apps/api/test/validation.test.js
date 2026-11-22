@@ -33,3 +33,17 @@ test('allows token-free mode only for a loopback-bound bundled dashboard', () =>
   assert.throws(() => assertValidConfiguration({ ...local, LISTEN_HOST: 'localhost' }), /LOCAL_ONLY_MODE/);
   assert.throws(() => assertValidConfiguration({ ...local, WEB_STATIC_DIR: '' }), /LOCAL_ONLY_MODE/);
 });
+
+test('wildcard CORS and Cloud Shell preview require an explicit private token and HTTPS origin', () => {
+  const local = { LOCAL_ONLY_MODE: 'true', LISTEN_HOST: '127.0.0.1', WEB_STATIC_DIR: './public' };
+  const token = 'test-dashboard-access-token-over-24-chars';
+  assert.throws(() => assertValidConfiguration({ ...local, CORS_ALLOW_ALL_ORIGINS: 'true' }), /DASHBOARD_TOKEN/);
+  assert.throws(() => assertValidConfiguration({ ...local, CLOUD_SHELL_PREVIEW_ORIGIN: 'https://preview.example' }), /DASHBOARD_TOKEN/);
+  assert.throws(() => assertValidConfiguration({ ...local, DASHBOARD_TOKEN: token, CLOUD_SHELL_PREVIEW_ORIGIN: 'http://preview.example' }), /exact HTTPS/);
+  assert.throws(() => assertValidConfiguration({ ...local, DASHBOARD_TOKEN: token, CLOUD_SHELL_PREVIEW_ORIGIN: 'https://preview.example/unsafe' }), /exact HTTPS/);
+  assert.throws(() => assertValidConfiguration({ ...local, DASHBOARD_TOKEN: token, CLOUD_SHELL_PREVIEW_ORIGIN: 'https://preview.example?key=x' }), /exact HTTPS/);
+  const result = assertValidConfiguration({ ...local, DASHBOARD_TOKEN: token,
+    CLOUD_SHELL_PREVIEW_ORIGIN: 'https://4000-cs-user.cloudshell.dev', CORS_ALLOW_ALL_ORIGINS: 'true' });
+  assert.equal(result.previewOrigin, 'https://4000-cs-user.cloudshell.dev');
+  assert.equal(result.allowAllOrigins, true);
+});

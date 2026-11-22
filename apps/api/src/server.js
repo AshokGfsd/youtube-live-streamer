@@ -19,8 +19,12 @@ import { InstagramLiveManager, registerInstagramLiveRoutes } from './instagram-l
 
 const execFileAsync = promisify(execFile);
 const env = process.env;
-const { base: rtmpsUrl, maxBytes } = assertValidConfiguration(env);
+const { base: rtmpsUrl, maxBytes, previewOrigin, allowAllOrigins } = assertValidConfiguration(env);
 const localOnly = env.LOCAL_ONLY_MODE === 'true';
+const previewHost = previewOrigin ? new URL(previewOrigin).host : '';
+const listenPort = Number(env.PORT || 4000);
+const localHosts = new Set([`127.0.0.1:${listenPort}`, `localhost:${listenPort}`]);
+const localOrigins = new Set([`http://127.0.0.1:${listenPort}`, `http://localhost:${listenPort}`]);
 const dataDir = path.resolve(env.DATA_DIR || './data');
 const manager = new StreamManager({
   dataDir, streamKey: env.YOUTUBE_STREAM_KEY, rtmpsUrl,
@@ -63,8 +67,7 @@ app.use(helmet({ contentSecurityPolicy: localOnly ? false : undefined }));
 if (localOnly) {
   app.use((req, res, next) => {
     const requestedHost = req.get('host') || '';
-    const port = Number(env.PORT || 4000);
-    if (requestedHost !== `127.0.0.1:${port}` && requestedHost !== `localhost:${port}`) {
+    if (!localHosts.has(requestedHost) && requestedHost !== previewHost) {
       return res.status(403).json({ error: 'Local phone access only' });
     }
     next();
@@ -72,8 +75,12 @@ if (localOnly) {
 }
 app.use(cors((req, callback) => callback(null, {
   origin(origin, done) {
+    // Wildcard CORS is an explicit opt-in. Cross-origin control requests still
+    // require DASHBOARD_TOKEN, even in loopback-bound personal mode.
+    if (allowAllOrigins) return done(null, '*');
     if (localOnly) {
       if (!origin) return done(null, true);
+      if (previewOrigin && origin === previewOrigin) return done(null, true);
       try {
         const parsed = new URL(origin);
         const port = Number(env.PORT || 4000);
@@ -104,9 +111,13 @@ app.get('/health', (_req, res) => res.json({ ok: true, service: 'streamforge-api
   multiChannelEnabled: channelStudio?.multiChannelEnabled ?? false }));
 
 app.use('/api', (req, res, next) => {
-  if (localOnly) return next();
-  const expected = 'Bearer ' + env.DASHBOARD_TOKEN;
-  if (!safeEquals(req.get('authorization') || '', expected)) {
+  // Local pages keep their token-free experience. Cloud Shell preview traffic
+  // and cross-origin requests are authenticated, including with wildcard CORS.
+  const requestOrigin = req.get('origin');
+  const fromLocalPage = localHosts.has(req.get('host') || '') &&
+    (!requestOrigin || localOrigins.has(requestOrigin));
+  if (localOnly && fromLocalPage) return next();
+  if (!safeEquals(req.get('authorization') || '', 'Bearer ' + env.DASHBOARD_TOKEN)) {
     return res.status(401).json({ error: 'Invalid dashboard access token' });
   }
   next();

@@ -88,6 +88,57 @@ or sandbox capabilities that Cloud Shell does not provide. Use a **Debian
 Compute Engine VM** for persistent streaming; never open the local dashboard,
 VNC, or debugging ports to the Internet.
 
+### Optional: Connect the dashboard through your own Cloud Shell preview URL
+
+The Cloud Shell **Web Preview** URL is an HTTPS proxy hostname. By default the
+StreamForge API accepts only local Host headers, so `http://127.0.0.1:4000/health`
+can work even while the preview dashboard reports **Failed to fetch**. CORS
+alone cannot fix the Host restriction. The following opt-in keeps the API
+bound to `127.0.0.1` and requires a separate owner token for preview requests:
+
+1. In Cloud Shell, obtain **your exact preview origin** (do not share its
+   session-specific link publicly):
+
+   ```bash
+   printf 'https://4000-%s\n' "$WEB_HOST"
+   ```
+
+2. Generate a secret locally using `openssl rand -hex 32`. Open the private
+   `~/StreamForge-GCloud/.env` with `nano` and set the values below (replace
+   `https://4000-YOUR-WEB-HOST` with the output above):
+
+   ```dotenv
+   LOCAL_ONLY_MODE=true
+   LISTEN_HOST=127.0.0.1
+   CHANNEL_STORAGE=file
+   MULTI_CHANNEL_ENABLED=false
+   CLOUD_SHELL_PREVIEW_ORIGIN=https://4000-YOUR-WEB-HOST
+   CORS_ALLOW_ALL_ORIGINS=true
+   DASHBOARD_TOKEN=YOUR_RANDOM_64_CHARACTER_HEX_TOKEN
+   ```
+
+   Wildcard CORS permits frontends on other origins to *attempt* requests, but
+   actual preview and cross-origin API controls still require this token. Do
+   not use `*` as the preview hostname; it must be an exact HTTPS origin.
+
+3. Restart the services to pick up the new `.env`:
+
+   ```bash
+   cd ~/youtube-live-streamer
+   bash scripts/google-cloud-vm/stop.sh
+   bash scripts/google-cloud-vm/start.sh
+   ```
+
+4. Open **Cloud Shell Web Preview → port 4000**. The dashboard will show the
+   connection form. Enter the exact `https://4000-...` preview URL as its API
+   address, and the random `DASHBOARD_TOKEN` value from `.env` as its access
+   token. Do not send the token to anyone or paste it in a chat.
+
+Cloud Shell's own identity redirect must complete before requests can reach
+StreamForge. The preview URL can change when Cloud Shell is re-provisioned;
+update `CLOUD_SHELL_PREVIEW_ORIGIN` if that happens. This setup still does **not**
+make Cloud Shell a reliable continuous livestream host.
+
 ## Step 3 — Use encrypted file storage (no database)
 
 StreamForge can store a single channel and its saved Instagram Reel settings on

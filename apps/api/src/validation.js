@@ -26,6 +26,19 @@ export function formatSize(bytes) {
 
 export function assertValidConfiguration(env) {
   const localOnly = env.LOCAL_ONLY_MODE === 'true';
+  const allowAllOrigins = env.CORS_ALLOW_ALL_ORIGINS === 'true';
+  const previewValue = String(env.CLOUD_SHELL_PREVIEW_ORIGIN || '').trim();
+  let previewOrigin = '';
+  if (previewValue) {
+    let parsed;
+    try { parsed = new URL(previewValue); }
+    catch { throw new Error('CLOUD_SHELL_PREVIEW_ORIGIN must be one exact HTTPS origin'); }
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash ||
+        previewValue.replace(/\/$/, '') !== parsed.origin) {
+      throw new Error('CLOUD_SHELL_PREVIEW_ORIGIN must be one exact HTTPS origin');
+    }
+    previewOrigin = parsed.origin;
+  }
   const channelStorage = String(env.CHANNEL_STORAGE || 'mysql').trim().toLowerCase();
   if (!['file', 'mysql'].includes(channelStorage)) throw new Error('CHANNEL_STORAGE must be file or mysql');
   if (channelStorage === 'file' && String(env.MULTI_CHANNEL_ENABLED || 'false').toLowerCase() !== 'false') {
@@ -34,8 +47,9 @@ export function assertValidConfiguration(env) {
   if (localOnly && (env.LISTEN_HOST !== '127.0.0.1' || !env.WEB_STATIC_DIR)) {
     throw new Error('LOCAL_ONLY_MODE requires LISTEN_HOST=127.0.0.1 and WEB_STATIC_DIR');
   }
-  if (!localOnly && (!env.DASHBOARD_TOKEN || env.DASHBOARD_TOKEN.length < 24 || env.DASHBOARD_TOKEN === 'replace-with-long-random-token')) {
-    throw new Error('Set DASHBOARD_TOKEN to at least 24 random characters');
+  if ((!localOnly || allowAllOrigins || previewOrigin) &&
+      (!env.DASHBOARD_TOKEN || env.DASHBOARD_TOKEN.length < 24 || env.DASHBOARD_TOKEN === 'replace-with-long-random-token')) {
+    throw new Error('Set DASHBOARD_TOKEN to at least 24 random characters when allowing remote origins');
   }
   if (env.YOUTUBE_STREAM_KEY && !/^[a-zA-Z0-9_-]+$/.test(env.YOUTUBE_STREAM_KEY)) {
     throw new Error('YOUTUBE_STREAM_KEY must contain only letters, numbers, underscores or hyphens');
@@ -44,5 +58,5 @@ export function assertValidConfiguration(env) {
   if (!base.startsWith('rtmps://')) throw new Error('YOUTUBE_RTMPS_URL must be an rtmps:// address');
   const maxGb = Number(env.MAX_UPLOAD_GB || 4);
   if (!Number.isFinite(maxGb) || maxGb <= 0 || maxGb > 20) throw new Error('MAX_UPLOAD_GB must be between 0 and 20');
-  return { base, maxBytes: Math.floor(maxGb * 1024 ** 3) };
+  return { base, maxBytes: Math.floor(maxGb * 1024 ** 3), previewOrigin, allowAllOrigins };
 }
