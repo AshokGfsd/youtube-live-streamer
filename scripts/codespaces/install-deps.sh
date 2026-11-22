@@ -5,12 +5,21 @@
 set -euo pipefail
 
 dry_run=false
-if [[ ${1:-} == '--dry-run' ]]; then dry_run=true; fi
+without_mysql=false
+for flag in "$@"; do
+  case "$flag" in
+    --dry-run) dry_run=true ;;
+    --without-mysql) without_mysql=true ;;
+    *) echo 'Usage: install-deps.sh [--dry-run] [--without-mysql]' >&2; exit 2 ;;
+  esac
+done
 
 declare -A packages=()
 add_package() { packages["$1"]=1; }
 
-for program in node npm curl ffmpeg ffprobe tmux Xvfb xdpyinfo openbox x11vnc websockify mariadb-admin pulseaudio pactl parec; do
+programs=(node npm curl ffmpeg ffprobe tmux Xvfb xdpyinfo openbox x11vnc websockify pulseaudio pactl parec)
+if [[ "$without_mysql" == false ]]; then programs+=(mariadb-admin); fi
+for program in "${programs[@]}"; do
   if command -v "$program" >/dev/null 2>&1; then continue; fi
   case "$program" in
     node) add_package nodejs ;;
@@ -25,7 +34,7 @@ for program in node npm curl ffmpeg ffprobe tmux Xvfb xdpyinfo openbox x11vnc we
 done
 
 # MariaDB server and noVNC assets are required even when client commands exist.
-if ! command -v mariadbd >/dev/null 2>&1 && ! command -v mysqld >/dev/null 2>&1; then
+if [[ "$without_mysql" == false ]] && ! command -v mariadbd >/dev/null 2>&1 && ! command -v mysqld >/dev/null 2>&1; then
   add_package mariadb-server
 fi
 if [[ ! -f /usr/share/novnc/vnc.html ]]; then add_package novnc; fi

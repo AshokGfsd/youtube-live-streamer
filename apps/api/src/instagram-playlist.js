@@ -98,3 +98,13 @@ export class InstagramPlaylistStore {
     return this.list(channelId);
   }
 }
+
+// Use the same validated Reel URL format with atomic file-backed persistence.
+export class FileInstagramPlaylistStore {
+  constructor(channelStore) { this.channelStore = channelStore; }
+  async initialize() {}
+  async list(channelId) { return this.channelStore.listReels(channelId); }
+  async add(channelId, input) { return this.channelStore.addReel(channelId, input); }
+  async remove(channelId, itemId) { return this.channelStore.removeReel(channelId, itemId); }
+  async reorder(channelId, ids) { return this.channelStore.reorderReels(channelId, ids); }
+}

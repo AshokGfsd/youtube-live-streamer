@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ChannelError } from './channel-store.js';
 import { InstagramReelsController, findInstagramTab } from './instagram-cdp.js';
-import { InstagramPlaylistStore, normalizeReelUrl } from './instagram-playlist.js';
+import { FileInstagramPlaylistStore, InstagramPlaylistStore, normalizeReelUrl } from './instagram-playlist.js';
 import { InstagramMediaProber } from './instagram-media-probe.js';
 import { InstagramMediaCollector } from './instagram-media-collector.js';
 import { buildDirectMediaFfmpegArgs, directMediaManifest, validateDirectMediaPlaylist } from './instagram-direct-media.js';
@@ -131,7 +131,7 @@ function safeFfmpegMessage(value, key) {
 export class InstagramLiveManager {
   constructor({ store, studio, env = process.env, spawnProcess = spawn, makeController = (options) => new InstagramReelsController(options) }) {
     this.store = store;
-    this.playlist = new InstagramPlaylistStore(store);
+    this.playlist = store.pool ? new InstagramPlaylistStore(store) : new FileInstagramPlaylistStore(store);
     this.mediaProber = new InstagramMediaProber();
     this.mediaCollector = new InstagramMediaCollector({ port: Number(env.INSTAGRAM_CDP_PORT || 9222) });
     this.studio = studio;
@@ -157,19 +157,24 @@ export class InstagramLiveManager {
   }
 
   async initialize() {
-    await this.store.pool.query(`CREATE TABLE IF NOT EXISTS streamforge_instagram_live (
-      channel_id CHAR(36) PRIMARY KEY,
-      settings_json JSON NOT NULL,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      CONSTRAINT fk_instagram_channel FOREIGN KEY (channel_id) REFERENCES streamforge_channels(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    if (this.store.pool) {
+      await this.store.pool.query(`CREATE TABLE IF NOT EXISTS streamforge_instagram_live (
+        channel_id CHAR(36) PRIMARY KEY,
+        settings_json JSON NOT NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT fk_instagram_channel FOREIGN KEY (channel_id) REFERENCES streamforge_channels(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    }
     await this.playlist.initialize();
   }
 
   async getSettings(id) {
     const channel = await this.store.getPublic(id);
-    const [rows] = await this.store.pool.execute('SELECT settings_json FROM streamforge_instagram_live WHERE channel_id = ?', [id]);
-    const saved = rows[0]?.settings_json;
+    let saved;
+    if (this.store.pool) {
+      const [rows] = await this.store.pool.execute('SELECT settings_json FROM streamforge_instagram_live WHERE channel_id = ?', [id]);
+      saved = rows[0]?.settings_json;
+    } else saved = await this.store.getInstagramSettings(id);
     const object = typeof saved === 'string' ? JSON.parse(saved) : saved;
     return validateInstagramSettings({ ...DEFAULTS,
       title: channel.defaultTitle || '', description: channel.defaultDescription || '', privacy: channel.privacy || 'private',
@@ -181,8 +186,10 @@ export class InstagramLiveManager {
     await this.store.getPublic(id);
     const existing = await this.getSettings(id);
     const settings = validateInstagramSettings({ ...existing, ...data });
-    await this.store.pool.execute(`INSERT INTO streamforge_instagram_live (channel_id, settings_json)
-      VALUES (?, ?) ON DUPLICATE KEY UPDATE settings_json = VALUES(settings_json)`, [id, JSON.stringify(settings)]);
+    if (this.store.pool) {
+      await this.store.pool.execute(`INSERT INTO streamforge_instagram_live (channel_id, settings_json)
+        VALUES (?, ?) ON DUPLICATE KEY UPDATE settings_json = VALUES(settings_json)`, [id, JSON.stringify(settings)]);
+    } else await this.store.saveInstagramSettings(id, settings);
     return settings;
   }
 

@@ -13,10 +13,20 @@ if ! command -v apt-get >/dev/null 2>&1; then
   exit 1
 fi
 
+without_mysql=false
+case "${1:-}" in
+  --without-mysql) without_mysql=true ;;
+  '') ;;
+  *) echo 'Usage: bootstrap-debian.sh [--without-mysql]' >&2; exit 2 ;;
+esac
+packages=(ca-certificates curl gnupg git ffmpeg xvfb x11-utils x11vnc novnc websockify openbox unzip tmux)
+# Ubuntu 24.04 provides only a snap launcher under the chromium apt name.
+# Debian offers a native chromium package.
+source /etc/os-release
+if [[ "${ID:-}" == debian ]]; then packages+=(chromium); fi
+if [[ "$without_mysql" == false ]]; then packages+=(mariadb-server); fi
 sudo apt-get update
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  ca-certificates curl gnupg git ffmpeg mariadb-server \
-  xvfb x11-utils x11vnc novnc websockify openbox chromium tmux
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
 
 if ! command -v node >/dev/null 2>&1 || [[ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -lt 22 ]]; then
   echo
@@ -26,7 +36,13 @@ if ! command -v node >/dev/null 2>&1 || [[ "$(node -p 'process.versions.node.spl
   exit 1
 fi
 
-sudo systemctl enable --now mariadb
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$repo_dir/scripts/google-cloud-vm/browser.sh"
+if ! streamforge_browser_path >/dev/null; then
+  bash "$repo_dir/scripts/google-cloud-vm/install-browser.sh"
+fi
 
-echo 'Runtime packages are ready. Next: configure MariaDB and StreamForge .env.'
+if [[ "$without_mysql" == false ]]; then sudo systemctl enable --now mariadb; fi
+
+echo 'Runtime packages are ready. Next: configure StreamForge .env.'
 echo 'Do not expose ports 4000, 5900, 6080, or 9222 in the VM firewall.'

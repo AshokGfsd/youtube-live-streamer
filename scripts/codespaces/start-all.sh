@@ -6,6 +6,8 @@ set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 app_dir="$HOME/StreamForge-GCloud"
+file_storage=false
+if [[ -f "$app_dir/.env" ]] && grep -Eq '^CHANNEL_STORAGE=file[[:space:]]*$' "$app_dir/.env"; then file_storage=true; fi
 
 step() { printf '\n[%s] %s\n' "$1" "$2"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -13,8 +15,12 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 # 1. Install only missing system prerequisites on Ubuntu/Debian Codespaces.
 # Re-running start-all is safe; no apt update/install runs when all are present.
 step '1/8' 'Checking and auto-installing missing programs...'
-bash "$repo_dir/scripts/codespaces/install-deps.sh" || fail 'Could not install missing system dependencies.'
-for program in node npm curl ffmpeg ffprobe tmux Xvfb xdpyinfo openbox x11vnc websockify mariadb-admin pulseaudio pactl parec; do
+install_args=()
+if [[ "$file_storage" == true ]]; then install_args+=(--without-mysql); fi
+bash "$repo_dir/scripts/codespaces/install-deps.sh" "${install_args[@]}" || fail 'Could not install missing system dependencies.'
+programs=(node npm curl ffmpeg ffprobe tmux Xvfb xdpyinfo openbox x11vnc websockify pulseaudio pactl parec)
+if [[ "$file_storage" == false ]]; then programs+=(mariadb-admin); fi
+for program in "${programs[@]}"; do
   command -v "$program" >/dev/null 2>&1 || fail "$program is still missing after installation."
 done
 browser=''
@@ -31,7 +37,7 @@ step '2/8' 'Checking .env and the private VNC password...'
 if [[ ! -f "$app_dir/.env" ]]; then
   mkdir -p "$app_dir"
   cp "$repo_dir/deploy/termux/.env.example" "$app_dir/.env.example"
-  fail "Copy $app_dir/.env.example to $app_dir/.env and configure your database settings."
+  fail "Copy $app_dir/.env.example to $app_dir/.env and configure CHANNEL_STORAGE=file for a database-free setup."
 fi
 grep -Eq '^LOCAL_ONLY_MODE=true$' "$app_dir/.env" || fail 'Set LOCAL_ONLY_MODE=true in .env'
 grep -Eq '^LISTEN_HOST=127\.0\.0\.1$' "$app_dir/.env" || fail 'Set LISTEN_HOST=127.0.0.1 in .env'
@@ -47,11 +53,15 @@ chmod 600 "$HOME/.vnc/passwd"
 # 3. Start MariaDB via service (works without systemd in GitHub Codespaces).
 # Existing database tables and user accounts are preserved.
 step '3/8' 'Starting MariaDB...'
-if ! sudo mariadb-admin ping --silent >/dev/null 2>&1; then
-  sudo service mariadb start || fail 'MariaDB failed to start; check sudo service mariadb status'
+if [[ "$file_storage" == true ]]; then
+  echo 'Skipped: CHANNEL_STORAGE=file (encrypted channel data on local disk).'
+else
+  if ! sudo mariadb-admin ping --silent >/dev/null 2>&1; then
+    sudo service mariadb start || fail 'MariaDB failed to start; check sudo service mariadb status'
+  fi
+  sudo mariadb-admin ping --silent >/dev/null 2>&1 || fail 'MariaDB is still unavailable.'
+  echo 'MariaDB ready.'
 fi
-sudo mariadb-admin ping --silent >/dev/null 2>&1 || fail 'MariaDB is still unavailable.'
-echo 'MariaDB ready.'
 
 # 4. Start PulseAudio and create the virtual sink captured by the livestream.
 # The Instagram browser will send its audio to sf_audio.

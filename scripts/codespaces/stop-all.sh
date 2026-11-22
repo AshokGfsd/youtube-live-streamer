@@ -82,7 +82,9 @@ echo 'PulseAudio stopped (or was already offline).'
 
 # STEP 4: Stop MariaDB after the API has disconnected; never remove its files.
 echo '[4/4] Stopping the MariaDB service...'
-if [[ "$keep_db" == true ]]; then
+if [[ -f "$HOME/StreamForge-GCloud/.env" ]] && grep -Eq '^CHANNEL_STORAGE=file[[:space:]]*$' "$HOME/StreamForge-GCloud/.env"; then
+  echo 'Skipped: file channel storage does not use MariaDB.'
+elif [[ "$keep_db" == true ]]; then
   echo 'MariaDB kept running (--keep-db).'
 elif command -v service >/dev/null 2>&1; then
   if sudo service mariadb stop; then

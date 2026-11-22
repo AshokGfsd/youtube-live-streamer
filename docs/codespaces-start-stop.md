@@ -12,11 +12,11 @@ bash start-all.sh
 
 The script runs these stages in order:
 
-1. Check Node.js, FFmpeg/FFprobe, MariaDB, PulseAudio, Xvfb, VNC/noVNC,
+1. Check Node.js, FFmpeg/FFprobe, optional MariaDB, PulseAudio, Xvfb, VNC/noVNC,
    tmux and Chrome. **Automatically install missing Ubuntu/Debian packages**
    using `apt-get`, then verify Node.js is version 22 or newer.
 2. Check `~/StreamForge-GCloud/.env` and the private VNC password.
-3. Start **MariaDB** with `sudo service mariadb start` if needed.
+3. Start **MariaDB** with `sudo service mariadb start` if needed, or skip it in file mode.
 4. Start **PulseAudio**, create `sf_audio` and set `sf_audio.monitor` for capture.
 5. Refresh the API + static dashboard in `~/StreamForge-GCloud` without touching secrets, video uploads or database data.
 6. Start **Xvfb :99** (540 × 960) and **Openbox**.
@@ -45,6 +45,15 @@ First use: if `.env` is missing, follow the error and configure
 `~/StreamForge-GCloud/.env` using the example. If `.vnc/passwd` does not exist,
 the script prompts you for a private VNC password. Do not paste secrets into
 scripts, terminals shared with others or GitHub commits.
+
+**Without MySQL:** In `~/StreamForge-GCloud/.env` use
+`CHANNEL_STORAGE=file`, `MULTI_CHANNEL_ENABLED=false`, `MYSQL_DATABASE=` and
+`INSTAGRAM_DISPLAY=:99`. Set `SINGLE_CHANNEL_STREAM_KEY` privately, or configure
+your first channel in the dashboard. The script now skips installing, checking,
+starting and stopping MariaDB. It stores encrypted channel data and Instagram
+settings in `~/StreamForge-GCloud/data/channels.json`. Back up this file and
+`channel-encryption.key` together. Switching from MySQL does not migrate old
+records. Stop the stream and restart the API after changing storage modes.
 
 Open `http://127.0.0.1:6080/vnc.html` through a **private authenticated
 Codespaces port forwarding** route to see the Instagram desktop; open
@@ -85,6 +94,7 @@ tmux ls
 curl http://127.0.0.1:4000/health
 curl http://127.0.0.1:9222/json/version
 pactl list short sources
+# Only if CHANNEL_STORAGE=mysql:
 sudo service mariadb status
 tmux capture-pane -pt sf-cloud-api -S -80
 tmux capture-pane -pt sf-cloud-browser -S -80
@@ -108,7 +118,7 @@ Instagram's servers, scrape search results, or download anyone's videos.
    `https://www.instagram.com/reel/SHORTCODE/`.
 3. In dashboard **Step 03 — Search & Select Reels**, click **Add Current Reel**.
    This detects the URL of your currently open Reel tab (CDP port 9222) and
-   saves the link to MySQL under the selected channel. Alternatively paste a
+   saves the link to your selected channel's configured storage. Alternatively paste a
    Reel URL and click **Add Pasted Link**. Optional custom names help organize
    your playlist.
 4. Repeat for additional Reels. Use **up/down** buttons to set play order, or

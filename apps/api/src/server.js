@@ -13,6 +13,7 @@ import { StreamManager } from './stream-manager.js';
 import { assertValidConfiguration, safeEquals, validVideoName } from './validation.js';
 import { YouTubeAutomation, YouTubeApiError } from './youtube-automation.js';
 import { createChannelStore, ChannelError } from './channel-store.js';
+import { createFileChannelStore } from './file-channel-store.js';
 import { ChannelStudio, registerChannelRoutes } from './channel-studio.js';
 import { InstagramLiveManager, registerInstagramLiveRoutes } from './instagram-live.js';
 
@@ -41,7 +42,8 @@ const youtube = localOnly ? new YouTubeAutomation({
   port: Number(env.PORT || 4000),
 }) : null;
 if (youtube) await youtube.initialize();
-const channelStore = await createChannelStore(env);
+const storageMode = String(env.CHANNEL_STORAGE || 'mysql').trim().toLowerCase();
+const channelStore = storageMode === 'file' ? await createFileChannelStore(env) : await createChannelStore(env);
 const channelStudio = channelStore ? new ChannelStudio({ store: channelStore, dataDir, env, legacyManager: manager }) : null;
 if (channelStudio) {
   await channelStudio.configureMode();
@@ -97,7 +99,9 @@ app.use(cors((req, callback) => callback(null, {
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'streamforge-api', localOnly,
-  mysqlConfigured: Boolean(channelStore), multiChannelEnabled: channelStudio?.multiChannelEnabled ?? false }));
+  mysqlConfigured: storageMode === 'mysql' && Boolean(channelStore),
+  channelStorage: channelStore ? storageMode : 'none',
+  multiChannelEnabled: channelStudio?.multiChannelEnabled ?? false }));
 
 app.use('/api', (req, res, next) => {
   if (localOnly) return next();

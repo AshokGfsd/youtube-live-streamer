@@ -26,6 +26,11 @@ export function formatSize(bytes) {
 
 export function assertValidConfiguration(env) {
   const localOnly = env.LOCAL_ONLY_MODE === 'true';
+  const channelStorage = String(env.CHANNEL_STORAGE || 'mysql').trim().toLowerCase();
+  if (!['file', 'mysql'].includes(channelStorage)) throw new Error('CHANNEL_STORAGE must be file or mysql');
+  if (channelStorage === 'file' && String(env.MULTI_CHANNEL_ENABLED || 'false').toLowerCase() !== 'false') {
+    throw new Error('CHANNEL_STORAGE=file supports single-channel mode only; set MULTI_CHANNEL_ENABLED=false');
+  }
   if (localOnly && (env.LISTEN_HOST !== '127.0.0.1' || !env.WEB_STATIC_DIR)) {
     throw new Error('LOCAL_ONLY_MODE requires LISTEN_HOST=127.0.0.1 and WEB_STATIC_DIR');
   }

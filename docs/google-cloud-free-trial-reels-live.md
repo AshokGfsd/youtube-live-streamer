@@ -18,7 +18,7 @@ The original `main`, MySQL multi-channel studio and Android/Termux branch remain
 | --- | --- |
 | Google Cloud Console + Cloud Shell | Your normal web browser (no Termux) |
 | Node.js StreamForge server | VM, bound to `127.0.0.1:4000` |
-| MariaDB | Same VM, local only |
+| Channel settings, keys and saved Reels | Encrypted file in VM `DATA_DIR` (**no MySQL required**) |
 | Virtual portrait X11 desktop | `Xvfb :99` on VM at 540 × 960 |
 | Chromium Instagram Reels | VM on `:99`, local DevTools port 9222 |
 | Remote browser interaction | Password-protected noVNC through an **SSH tunnel**, not a public firewall rule |
@@ -57,40 +57,59 @@ node --version
 Then install the VM runtime packages:
 
 ```bash
-bash scripts/google-cloud-vm/bootstrap-debian.sh
+bash scripts/google-cloud-vm/bootstrap-debian.sh --without-mysql
 ```
 
-This installs Chromium, FFmpeg, MariaDB, Xvfb, Openbox, noVNC and tmux. It **does not** launch a livestream or open any firewall ports.
+This installs Chromium, FFmpeg, Xvfb, Openbox, noVNC and tmux, **without MariaDB**. It **does not** launch a livestream or open any firewall ports.
 
-## Step 3 — Create a fresh local MariaDB database
+### Ubuntu Cloud Shell: `Missing chromium` even after `apt install chromium`
 
-In the VM SSH terminal:
+Google Cloud Shell can run Ubuntu 24.04, whose `chromium-browser` apt package is a
+Snap **launcher**, not an installed browser. Repeating `apt install chromium`
+does not install a working executable. StreamForge now detects actual Chromium,
+Google Chrome, or the official standalone **Chrome for Testing** binary. To try
+the browser in a **temporary testing session** without Snap, use:
 
 ```bash
-sudo mariadb
+bash scripts/google-cloud-vm/install-browser.sh
 ```
 
-Enter these statements, replacing the example password with a private one **you choose**:
+This downloads Google's Stable Chrome for Testing into
+`~/.local/share/streamforge-browser` and does not require root. After the full
+runtime setup (`bootstrap-debian.sh --without-mysql`), `start.sh` automatically
+finds the downloaded binary. Use
+`STREAMFORGE_BROWSER_BIN=/absolute/path/to/chrome` if you have another real
+Chrome binary. A Snap launcher that cannot execute is ignored.
 
-```sql
-CREATE DATABASE IF NOT EXISTS streamforge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'streamforge'@'127.0.0.1' IDENTIFIED BY 'REPLACE_WITH_YOUR_PRIVATE_PASSWORD';
-GRANT ALL PRIVILEGES ON streamforge.* TO 'streamforge'@'127.0.0.1';
-FLUSH PRIVILEGES;
-EXIT;
-```
+**This is only a browser-install workaround, not a Cloud Shell hosting
+recommendation.** Cloud Shell is ephemeral, can terminate unexpectedly, and is
+not appropriate for unattended livestreams. Chrome may also require libraries
+or sandbox capabilities that Cloud Shell does not provide. Use a **Debian
+Compute Engine VM** for persistent streaming; never open the local dashboard,
+VNC, or debugging ports to the Internet.
 
-Use a **new** password for this VM, not the one from your Android installation. Test login with `mariadb -h 127.0.0.1 -u streamforge -p streamforge -e "SELECT 1"` (enter password at prompt).
+## Step 3 — Use encrypted file storage (no database)
+
+StreamForge can store a single channel and its saved Instagram Reel settings on
+the VM disk. There is **no database setup, username, password, or MySQL server**.
+To enable this mode, set `CHANNEL_STORAGE=file` and `MULTI_CHANNEL_ENABLED=false`
+in the private environment file during Step 4.
+
+Existing MySQL users can leave `CHANNEL_STORAGE=mysql` unchanged. Selecting
+`file` does **not** import old MySQL channels; the original database remains
+untouched. Switch modes only after safely backing up any saved channel records.
 
 ## Step 4 — Configure the StreamForge VM environment
 
 ```bash
 mkdir -p ~/StreamForge-GCloud
 cp ~/streamforge-google-test/deploy/termux/.env.example ~/StreamForge-GCloud/.env
+chmod 600 ~/StreamForge-GCloud/.env
 nano ~/StreamForge-GCloud/.env
 ```
 
-Verify the following values, and insert your own database password:
+Verify the following values, and insert your **own** YouTube stream key in the
+private `.env` (never post it online):
 
 ```dotenv
 NODE_ENV=production
@@ -100,16 +119,31 @@ WEB_STATIC_DIR=./public
 LOCAL_ONLY_MODE=true
 DATA_DIR=./data
 FRONTEND_ORIGIN=http://127.0.0.1:4000,http://localhost:4000
-MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
-MYSQL_USER=streamforge
-MYSQL_PASSWORD=REPLACE_WITH_YOUR_PRIVATE_PASSWORD
-MYSQL_DATABASE=streamforge
+CHANNEL_STORAGE=file
+MULTI_CHANNEL_ENABLED=false
+MYSQL_DATABASE=
+SINGLE_CHANNEL_NAME=ClueRipple Live
+SINGLE_CHANNEL_STREAM_KEY=YOUR_REAL_YOUTUBE_STUDIO_STREAM_KEY
+SINGLE_CHANNEL_INGEST_URL=rtmps://a.rtmps.youtube.com/live2
+SINGLE_CHANNEL_DEFAULT_TITLE=ClueRipple Live
+SINGLE_CHANNEL_PRIVACY=private
 INSTAGRAM_DISPLAY=:99
 MAX_CONCURRENT_STREAMS=1
 ```
 
-Leave `CHANNEL_ENCRYPTION_KEY` blank only while `LOCAL_ONLY_MODE=true`: StreamForge generates a private local key on first run. Do not delete that key after adding channel data. Add `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` only if you use optional YouTube OAuth event creation. The Google redirect address remains `http://127.0.0.1:4000/api/youtube/oauth/callback` because the Google sign-in flow happens *inside the VM browser*.
+`SINGLE_CHANNEL_STREAM_KEY` in `.env` provisions your channel automatically.
+You can also leave it blank and complete the channel wizard in the dashboard.
+The channel records, Instagram stream settings, and saved Reels playlist are in
+`~/StreamForge-GCloud/data/channels.json`. Stream and OAuth secrets in that file
+are encrypted. **Back up `channels.json` and `channel-encryption.key` together**:
+without the key, saved secrets cannot be recovered. The private `.env` contains
+your key in plaintext if you configure it there, so do not commit or share it.
+
+Leave `CHANNEL_ENCRYPTION_KEY` blank only while `LOCAL_ONLY_MODE=true`:
+StreamForge generates a private local key on first run. Add `GOOGLE_CLIENT_ID` /
+`GOOGLE_CLIENT_SECRET` only if you use optional YouTube OAuth event creation.
+The Google redirect address remains `http://127.0.0.1:4000/api/youtube/oauth/callback`
+because the Google sign-in flow happens *inside the VM browser*.
 
 Save in nano with **Ctrl+O**, **Enter**, then **Ctrl+X**.
 
@@ -136,6 +170,13 @@ curl http://127.0.0.1:4000/health
 curl http://127.0.0.1:9222/json/version
 ```
 
+The health response should include `"channelStorage":"file"` and
+`"mysqlConfigured":false`. To check the channel exists:
+
+```bash
+curl -s http://127.0.0.1:4000/api/channels
+```
+
 If they fail, inspect:
 
 ```bash
@@ -153,7 +194,7 @@ gcloud compute ssh streamforge-test --zone=us-central1-a -- -N -L 6080:127.0.0.1
 
 Leave this Cloud Shell tunnel running. Use **Cloud Shell → Web Preview → Change port → 6080** and open `/vnc.html` on the preview URL. Enter the VNC password you created. This route is experimental and depends on Cloud Shell's web preview supporting the WebSocket proxy; if it cannot connect, use an ordinary **local SSH port-forwarding client** and visit `http://127.0.0.1:6080/vnc.html` instead. **Do not create public firewall rules to make VNC work.**
 
-Inside the virtual desktop, sign in to Instagram manually and play a Reel. To open the local StreamForge dashboard on that same VM desktop, open another Chromium window with `http://127.0.0.1:4000/channels`; complete the channel wizard and save your stream key, then return to the playing Instagram Reels window.
+Inside the virtual desktop, sign in to Instagram manually and play a Reel. To open the local StreamForge dashboard on that same VM desktop, open another Chromium window with `http://127.0.0.1:4000/channels`; your `.env` channel should already be configured if you supplied its key. Otherwise, complete the channel wizard, then return to the playing Instagram Reels window.
 
 The browser window must show a full **portrait Reel without the desktop Instagram sidebar or browser address bar**.
 
@@ -191,6 +232,7 @@ This stops only the experimental StreamForge tmux sessions. **It does not stop V
 | Check | Status |
 | --- | --- |
 | Existing Reels watcher unit tests | Verified locally before this branch |
+| No-MySQL file storage, encrypted secrets and Instagram playlists | Automated tests pass locally |
 | Linux scripts parse with Bash | Run `bash -n` test in the repository |
 | Real Google VM provisioning | Not performed; requires your account/approval |
 | VNC via Cloud Shell Web Preview | Not tested on your Google project |

@@ -184,7 +184,7 @@ export function registerChannelRoutes(app, { store, studio, maxBytes }) {
       channels: await Promise.all(channels.map(async (channel) => ({ ...channel,
         stream: channel.hasStreamKey ? (await studio.managerFor(channel.id)).getStatus() : null }))) });
   });
-  app.use('/api/channels', (req, _res, next) => store ? next() : next(new ChannelError('Configure MYSQL_DATABASE and CHANNEL_ENCRYPTION_KEY to enable channel management', 503)));
+  app.use('/api/channels', (req, _res, next) => store ? next() : next(new ChannelError('Configure CHANNEL_STORAGE=file or MYSQL_DATABASE to enable channel management', 503)));
   app.post('/api/channels', async (_req, res) => {
     if (!studio.multiChannelEnabled) throw new ChannelError('Single-channel mode is enabled. Configure your channel using .env or edit the existing profile.', 409);
     res.status(201).json(await store.create());

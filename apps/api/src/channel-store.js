@@ -105,7 +105,7 @@ const COLUMNS = `id, display_name AS displayName, handle, youtube_channel_id AS 
  stream_key_secret AS streamKeySecret, oauth_refresh_secret AS oauthRefreshSecret,
  created_at AS createdAt, updated_at AS updatedAt`;
 
-function publicChannel(row) {
+export function publicChannel(row) {
   if (!row) return null;
   const { streamKeySecret, oauthRefreshSecret, ...safe } = row;
   return { ...safe, loop: Boolean(row.loop), hasStreamKey: Boolean(streamKeySecret),

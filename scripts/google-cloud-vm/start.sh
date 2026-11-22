@@ -4,15 +4,26 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$repo_dir/scripts/google-cloud-vm/browser.sh"
 app_dir="$HOME/StreamForge-GCloud"
 display=':99'
+file_storage=false
+if [[ -f "$app_dir/.env" ]] && grep -Eq '^CHANNEL_STORAGE=file[[:space:]]*$' "$app_dir/.env"; then file_storage=true; fi
 
-for executable in node npm ffmpeg ffprobe tmux Xvfb xdpyinfo chromium openbox x11vnc websockify mariadb-admin; do
+programs=(node npm ffmpeg ffprobe tmux Xvfb xdpyinfo openbox x11vnc websockify)
+if [[ "$file_storage" == false ]]; then programs+=(mariadb-admin); fi
+for executable in "${programs[@]}"; do
   if ! command -v "$executable" >/dev/null 2>&1; then
     echo "Missing $executable; see scripts/google-cloud-vm/bootstrap-debian.sh" >&2
     exit 1
   fi
 done
+
+if ! browser_bin="$(streamforge_browser_path)"; then
+  echo 'Missing working Chrome/Chromium browser (Ubuntu chromium-browser snap launcher does not count).' >&2
+  echo 'Install an official standalone browser: bash scripts/google-cloud-vm/install-browser.sh' >&2
+  exit 1
+fi
 
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 if (( node_major < 22 )); then
@@ -23,7 +34,7 @@ fi
 if [[ ! -f "$app_dir/.env" ]]; then
   mkdir -p "$app_dir"
   cp "$repo_dir/deploy/termux/.env.example" "$app_dir/.env.example"
-  echo "First configure $app_dir/.env (copy .env.example and set MySQL credentials)." >&2
+  echo "First configure $app_dir/.env (copy .env.example; set CHANNEL_STORAGE=file to avoid MySQL)." >&2
   echo 'Do not paste secrets into scripts, git, or Cloud Shell history.' >&2
   exit 1
 fi
@@ -35,9 +46,13 @@ if ! grep -Eq '^LOCAL_ONLY_MODE=true$' "$app_dir/.env" ||
   exit 1
 fi
 
-if ! mariadb-admin ping --host=127.0.0.1 --protocol=tcp --silent >/dev/null 2>&1; then
-  echo 'MariaDB is offline. Start it with: sudo systemctl start mariadb' >&2
-  exit 1
+if [[ "$file_storage" == true ]]; then
+  echo 'Channel storage: encrypted file (MariaDB not required).'
+else
+  if ! mariadb-admin ping --host=127.0.0.1 --protocol=tcp --silent >/dev/null 2>&1; then
+    echo 'MariaDB is offline. Start it with: sudo systemctl start mariadb' >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -f "$HOME/.vnc/passwd" ]]; then
@@ -81,7 +96,8 @@ fi
 start_session sf-cloud-window-manager 'DISPLAY=:99 openbox'
 start_session sf-cloud-vnc "x11vnc -display :99 -localhost -rfbport 5900 -forever -shared -rfbauth '$HOME/.vnc/passwd'"
 start_session sf-cloud-web-vnc 'websockify --web=/usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900'
-start_session sf-cloud-browser "DISPLAY=:99 chromium --user-data-dir='$HOME/.streamforge-cloud-chromium' --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --window-position=0,0 --window-size=540,960 --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --kiosk --app='https://www.instagram.com/reels/'"
+printf -v quoted_browser '%q' "$browser_bin"
+start_session sf-cloud-browser "DISPLAY=:99 $quoted_browser --user-data-dir='$HOME/.streamforge-cloud-chromium' --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --window-position=0,0 --window-size=540,960 --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --kiosk --app='https://www.instagram.com/reels/'"
 start_session sf-cloud-api "cd '$app_dir' && LOCAL_ONLY_MODE=true node src/server.js"
 
 echo

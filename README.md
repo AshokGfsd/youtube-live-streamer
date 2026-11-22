@@ -5,6 +5,14 @@
 > Google Cloud Shell is not a persistent livestream server; this experiment
 > requires a separate VM and does not provision billable resources.
 
+> **Google Cloud VM without MySQL:** Set `CHANNEL_STORAGE=file` and
+> `MULTI_CHANNEL_ENABLED=false` in the private `~/StreamForge-GCloud/.env`.
+> The channel, Instagram settings, and saved Reel playlist will be saved to
+> `DATA_DIR/channels.json`, with stream secrets encrypted using a key kept in
+> the same private data directory. On Debian, install VM prerequisites with
+> `bash scripts/google-cloud-vm/bootstrap-debian.sh --without-mysql` and use
+> `bash scripts/google-cloud-vm/start.sh`. See the [step-by-step Google VM guide](docs/google-cloud-free-trial-reels-live.md).
+
 > **Experimental Instagram Reels auto-scroll livestream:**
 > See [the Android testing guide](docs/instagram-reels-android-prototype.md).
 > The browser controller and FFmpeg YouTube Live integration are implemented;
@@ -31,7 +39,8 @@ stream keys and OAuth refresh tokens are encrypted with AES-256-GCM at rest.
   simultaneously; each ready channel has its own video and FFmpeg state.
 - **Backward compatibility:** the original single-channel Live Studio and old
   stream key in `.env` continue to work. A database is optional until you open
-  multi-channel management.
+  multi-channel management. For a **single-channel Google VM**, you can now also
+  use the Reels Live studio without a database by choosing `CHANNEL_STORAGE=file`.
 
 Never commit your database password, encryption key, OAuth client secret or
 YouTube stream keys. A database backup **without** your original encryption key
