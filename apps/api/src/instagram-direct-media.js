@@ -1,5 +1,6 @@
 import { ChannelError } from './channel-store.js';
 import { validateInstagramMediaUrl } from './instagram-media-probe.js';
+import { streamOutputDimensions } from './instagram-output-resolution.js';
 
 const MAX_DIRECT_CLIPS = 100;
 
@@ -24,7 +25,8 @@ export function directMediaManifest(urls) {
 }
 
 export function buildDirectMediaFfmpegArgs(settings, ingestUrl, streamKey, manifestPath, framePath) {
-  const { captureWidth: width, captureHeight: height, fps, bitrateKbps, frame, mobileLayout, playlistLoop } = settings;
+  const { width, height } = streamOutputDimensions(settings);
+  const { fps, bitrateKbps, frame, mobileLayout, playlistLoop } = settings;
   const phone = mobileLayout && frame === 'iphone';
   const args = ['-hide_banner', '-nostdin', '-loglevel', 'warning', '-re'];
   if (playlistLoop) args.push('-stream_loop', '-1');

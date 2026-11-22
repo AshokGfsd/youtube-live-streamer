@@ -9,12 +9,14 @@ import { InstagramPlaylistStore, normalizeReelUrl } from './instagram-playlist.j
 import { InstagramMediaProber } from './instagram-media-probe.js';
 import { InstagramMediaCollector } from './instagram-media-collector.js';
 import { buildDirectMediaFfmpegArgs, directMediaManifest, validateDirectMediaPlaylist } from './instagram-direct-media.js';
+import { STREAM_OUTPUT_SIZES, streamOutputDimensions } from './instagram-output-resolution.js';
 
 const IPHONE_FRAME = fileURLToPath(new URL('./assets/iphone-frame.svg', import.meta.url));
 
 const DEFAULTS = Object.freeze({
   title: '', description: '', privacy: 'private', scroll: 'wheel',
   mobileLayout: true, frame: 'iphone', sourceMode: 'browser', playlistMode: 'feed', playlistLoop: true,
+  streamResolution: 'source',
   captureWidth: 540, captureHeight: 960, captureX: 0, captureY: 0,
   fps: 15, bitrateKbps: 1200, audio: 'silent', createBroadcast: false,
 });
@@ -39,6 +41,7 @@ export function validateInstagramSettings(payload) {
   if (!['feed', 'selected'].includes(input.playlistMode)) throw new ChannelError('Choose Feed or Selected Reels mode');
   if (!['browser', 'direct'].includes(input.sourceMode)) throw new ChannelError('Choose Browser or Direct MP4 live source');
   if (typeof input.playlistLoop !== 'boolean') throw new ChannelError('Playlist loop must be enabled or disabled');
+  if (!Object.hasOwn(STREAM_OUTPUT_SIZES, input.streamResolution)) throw new ChannelError('Choose a supported stream output resolution');
   if (!['silent', 'pulse'].includes(input.audio)) throw new ChannelError('Audio must be silent or PulseAudio monitor');
   if (typeof input.createBroadcast !== 'boolean') throw new ChannelError('Invalid automatic broadcast setting');
   for (const field of ['captureWidth', 'captureHeight']) intInRange(input[field], field, 240, 1920);
@@ -82,6 +85,10 @@ export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display
   const config = validateInstagramSettings(settings);
   const phoneFrame = config.mobileLayout && config.frame === 'iphone';
   const crop = phoneFrame ? reelCaptureCrop(videoRect, config, viewport) : null;
+  const { width: outputWidth, height: outputHeight } = streamOutputDimensions(config);
+  const scaleOutput = outputWidth !== config.captureWidth || outputHeight !== config.captureHeight;
+  const outputFilter = `scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=decrease:flags=lanczos,` +
+    `pad=${outputWidth}:${outputHeight}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p`;
   // Ingest URL and stream key have already been validated by ChannelStore.
   const args = ['-hide_banner', '-nostdin', '-loglevel', 'warning',
     '-thread_queue_size', '512', '-f', 'x11grab', '-draw_mouse', '0',
@@ -104,8 +111,9 @@ export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display
       `crop=${videoWidth}:${videoHeight},setsar=1,` +
       `pad=${config.captureWidth}:${config.captureHeight}:${videoX}:${videoY}:color=black,format=rgba[reel];` +
       `[2:v]scale=${config.captureWidth}:${config.captureHeight}:flags=bicubic,format=rgba[frame];` +
-      '[reel][frame]overlay=0:0:format=auto,format=yuv420p[composed]');
+      `[reel][frame]overlay=0:0:format=auto,${scaleOutput ? `${outputFilter}` : 'format=yuv420p'}[composed]`);
   }
+  if (!phoneFrame && scaleOutput) args.push('-vf', outputFilter);
   args.push('-map', phoneFrame ? '[composed]' : '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'ultrafast',
     '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-r', String(config.fps),
     '-g', String(config.fps * 2), '-b:v', `${config.bitrateKbps}k`,
@@ -142,6 +150,7 @@ export class InstagramLiveManager {
     this.broadcast = null;
     this.playlistState = null;
     this.sourceMode = null;
+    this.outputResolution = null;
     this.mediaTempDir = null;
     this.directMediaUrls = [];
     this.directStartIndex = 0;
@@ -183,6 +192,7 @@ export class InstagramLiveManager {
 
   getStatus() {
     return { running: Boolean(this.process), starting: this.starting, sourceMode: this.sourceMode,
+      outputResolution: this.outputResolution,
       activeChannelId: this.activeChannelId, startedAt: this.startedAt,
       feed: this.feedState ? { phase: this.feedState.phase, activeId: this.feedState.activeId,
         currentTime: this.feedState.currentTime, duration: this.feedState.duration } : null,
@@ -225,6 +235,7 @@ export class InstagramLiveManager {
     this.broadcast = null;
     this.feedState = null;
     this.sourceMode = settings.sourceMode;
+    this.outputResolution = streamOutputDimensions(settings);
     this.directMediaUrls = directUrls;
     this.directStartIndex = 0;
     this.playlistState = directUrls.length ? { current: null, total: directUrls.length,
@@ -291,6 +302,7 @@ export class InstagramLiveManager {
         if (code === 0 && directUrls.length && !settings.playlistLoop) this.appendLog('Direct MP4 playlist completed.');
         else this.error ||= `FFmpeg exited${code === null ? '' : ` (code ${code})`}. Check media URLs and RTMPS connection.`;
         this.sourceMode = null;
+        this.outputResolution = null;
         this.startedAt = null;
         this.playlistState = null;
         this.directMediaUrls = [];
@@ -375,6 +387,7 @@ export class InstagramLiveManager {
         this.cleanupMediaManifest().catch(() => {});
         this.activeChannelId = null;
         this.sourceMode = null;
+        this.outputResolution = null;
         this.startedAt = null;
         this.playlistState = null;
         this.directMediaUrls = [];
@@ -387,6 +400,7 @@ export class InstagramLiveManager {
       });
       this.directMediaUrls = urls;
       this.directStartIndex = startIndex;
+      this.outputResolution = streamOutputDimensions(settings);
       this.playlistState = { current: null, total: urls.length, loop: settings.playlistLoop, reelUrl: null };
       this.error = null;
       this.appendLog(`${mediaUrls === undefined ? 'Video selection' : 'New topic playlist'}: encoder reconnected, starting at video ${startIndex + 1}/${urls.length}. YouTube may briefly buffer.`);
@@ -426,6 +440,7 @@ export class InstagramLiveManager {
     this.feedState = null;
     this.playlistState = null;
     this.sourceMode = null;
+    this.outputResolution = null;
     this.directMediaUrls = [];
     this.directStartIndex = 0;
     await watcher?.stop();

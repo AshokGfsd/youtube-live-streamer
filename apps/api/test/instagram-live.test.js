@@ -9,6 +9,9 @@ test('validates capture dimensions, scroll method, and rights settings', () => {
   assert.equal(validateInstagramSettings({}).frame, 'iphone');
   assert.equal(validateInstagramSettings({}).playlistMode, 'feed');
   assert.equal(validateInstagramSettings({}).playlistLoop, true);
+  assert.equal(validateInstagramSettings({}).streamResolution, 'source');
+  assert.equal(validateInstagramSettings({ streamResolution: '720x1280' }).streamResolution, '720x1280');
+  assert.throws(() => validateInstagramSettings({ streamResolution: '9999x9999' }), /output resolution/);
   assert.equal(validateInstagramSettings({ scroll: 'arrow', captureWidth: 320 }).scroll, 'arrow');
   assert.throws(() => validateInstagramSettings({ captureWidth: 321 }), /even numbers/);
   assert.throws(() => validateInstagramSettings({ privacy: 'unknown' }), /privacy/);
@@ -32,6 +35,21 @@ test('FFmpeg raw mode preserves existing X11 capture and YouTube RTMPS behavior'
   assert.ok(args.includes('anullsrc=channel_layout=stereo:sample_rate=44100'));
   assert.ok(args.includes('libx264'));
   assert.equal(args[args.indexOf('-r') + 1], '15');
+});
+
+test('browser stream output resolution scales without changing X11 capture geometry', () => {
+  const raw = buildInstagramFfmpegArgs({ frame: 'none', streamResolution: '720x1280' },
+    'rtmps://a.rtmps.youtube.com/live2', 'key');
+  assert.equal(raw[raw.indexOf('-video_size') + 1], '540x960');
+  assert.match(raw[raw.indexOf('-vf') + 1], /scale=720:1280:force_original_aspect_ratio=decrease/);
+  assert.match(raw[raw.indexOf('-vf') + 1], /pad=720:1280/);
+
+  const phone = buildInstagramFfmpegArgs({ streamResolution: '1080x1920' },
+    'rtmps://a.rtmps.youtube.com/live2', 'key', ':99', { x: 32, y: 16, width: 222, height: 398 });
+  assert.equal(phone[phone.indexOf('-video_size') + 1], '540x960');
+  assert.match(phone[phone.indexOf('-filter_complex') + 1], /pad=540:960:46:82/);
+  assert.match(phone[phone.indexOf('-filter_complex') + 1], /scale=1080:1920:force_original_aspect_ratio=decrease/);
+  assert.ok(!phone.includes('-vf'));
 });
 
 test('PulseAudio input is passed as raw PCM through a local pipe', () => {

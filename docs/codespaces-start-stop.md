@@ -213,9 +213,14 @@ To make the MP4 links the actual livestream video source:
    sends the VNC/Chrome screen exactly as before.
 4. Choose **Loop the selected playlist** in Step 03 (on = repeat; off = finish
    after the final clip). Set the title and YouTube visibility to **Private**.
-   The mobile capture width/height, FPS, bitrate and iPhone-frame choice are
-   reused for direct encoding. Browser scrolling and PulseAudio options do
-   not apply to the direct source; encoded MP4 audio is used when present.
+   Under **Broadcast settings → Stream output resolution**, choose **Match capture
+   size**, **360p**, **480p**, **540p**, **720p HD**, or **1080p Full HD**.
+   The output setting controls the FFmpeg encoded video size; it does **not**
+   resize the Xvfb/Chrome capture. Adjust FPS and video bitrate in the advanced
+   controls. Higher output resolutions need more CPU and upload bandwidth;
+   upscaling low-resolution sources does not restore missing details.
+   Browser scrolling and PulseAudio options do not apply to the direct source;
+   encoded MP4 audio is used when present.
 5. Confirm that you have the rights to broadcast **all clips and their audio**,
    then click **Start Direct MP4 livestream** and verify the actual picture
    and audio in YouTube Studio. Chrome/noVNC may remain open, but its screen
@@ -261,7 +266,12 @@ the requested count cannot be guaranteed. The collector only reads media
 rendered in your private logged-in Chrome and creates/closes its own temporary
 search tab. It does not call private Instagram APIs, bypass login/CAPTCHA,
 download media or store signed links permanently. URLs can expire quickly.
-One search at a time is allowed and it cannot run during an active livestream.
+One search at a time is allowed. During a **Direct MP4** livestream you can
+search for a new topic, then click **Replace live playlist** to apply the new
+links. Choosing an individual video or replacing the playlist briefly restarts
+FFmpeg and can make YouTube buffer; browser/X11 capture mode must be stopped
+before running the search. Stream output resolution changes take effect on the
+next encoder start or direct-video switch after the settings have saved.
 
 ## Single-channel configuration in `.env`
 

@@ -14,6 +14,7 @@ type Channel = { id: string; displayName: string; handle: string; ready: boolean
 type Settings = {
   title: string; description: string; privacy: 'private' | 'unlisted' | 'public';
   scroll: 'wheel' | 'arrow'; mobileLayout: boolean; frame: 'iphone' | 'none'; captureWidth: number; captureHeight: number;
+  streamResolution: 'source' | '360x640' | '480x854' | '540x960' | '720x1280' | '1080x1920';
   captureX: number; captureY: number; fps: number; bitrateKbps: number;
   audio: 'silent' | 'pulse'; createBroadcast: boolean;
   sourceMode: 'browser' | 'direct';
@@ -23,6 +24,7 @@ type PlaylistItem = { id: string; reelUrl: string; shortcode: string; label: str
 type Status = {
   running: boolean; starting: boolean; activeChannelId: string | null; startedAt: string | null;
   sourceMode?: 'browser' | 'direct' | null;
+  outputResolution?: { width: number; height: number } | null;
   feed: { phase: string; activeId: number | null; currentTime: number | null; duration: number | null } | null;
   playlist: { current: number | null; total: number; loop: boolean; reelUrl: string | null } | null;
   error: string | null; logs: string[]; broadcast: { title: string; url: string } | null;
@@ -283,6 +285,11 @@ export default function InstagramLivePage() {
 
   const activeCount = runningDirect ? status?.directControl?.count || livePlaylistUrls.length : 0;
   const previewEmbed = youtubeLiveEmbedUrl(status?.broadcast?.url || youtubePreviewLink);
+  const outputLabel = status?.running && status.outputResolution
+    ? `${status.outputResolution.width} × ${status.outputResolution.height}`
+    : settings?.streamResolution && settings.streamResolution !== 'source'
+      ? settings.streamResolution.replace('x', ' × ')
+      : settings ? `${settings.captureWidth} × ${settings.captureHeight}` : '—';
 
   return (
     <div className="il-root">
@@ -347,6 +354,17 @@ export default function InstagramLivePage() {
 
               <section className="il-panel"><div className="il-panel-head"><div className="il-panel-icon il-purple"><Settings2 size={20}/></div><div><p>STEP 04</p><h2>Broadcast settings</h2><span>Changes automatically save to your MySQL channel profile.</span></div><div className="il-save-state">{saveState === 'saving' ? <><LoaderCircle size={14} className="il-spin"/> Saving</> : saveState === 'saved' ? <><Check size={14}/> Saved</> : <><Save size={14}/> Draft</>}</div></div>
                 {settings ? <div className="il-fields"><div><label className="il-label" htmlFor="il-title">LIVE TITLE</label><input id="il-title" placeholder="e.g. Reels discovery live" maxLength={100} value={settings.title} onChange={(event) => update('title', event.target.value)}/></div><div><label className="il-label" htmlFor="il-desc">DESCRIPTION</label><textarea id="il-desc" rows={3} placeholder="Describe your livestream..." value={settings.description} onChange={(event) => update('description', event.target.value)}/></div>
+                  <div className="il-output-selector"><label className="il-label" htmlFor="il-stream-resolution">STREAM OUTPUT RESOLUTION</label>
+                    <select id="il-stream-resolution" value={settings.streamResolution} onChange={(event) => update('streamResolution', event.target.value as Settings['streamResolution'])}>
+                      <option value="source">Match capture size ({settings.captureWidth} × {settings.captureHeight})</option>
+                      <option value="360x640">360p — 360 × 640 (low CPU)</option>
+                      <option value="480x854">480p — 480 × 854</option>
+                      <option value="540x960">540p — 540 × 960 (balanced)</option>
+                      <option value="720x1280">720p HD — 720 × 1280</option>
+                      <option value="1080x1920">1080p Full HD — 1080 × 1920 (high CPU)</option>
+                    </select>
+                    <p className="il-hint">Changes the video sent to YouTube, not the 540 × 960 VNC/Chrome capture. Higher resolutions increase FFmpeg CPU and bandwidth. Adjust bitrate under Capture and audio controls; changes take effect when the encoder starts or reconnects.</p>
+                  </div>
                   <div className="il-two-cols"><div><label className="il-label" htmlFor="il-privacy">YOUTUBE VISIBILITY</label><select id="il-privacy" value={settings.privacy} onChange={(event) => update('privacy', event.target.value as Settings['privacy'])}><option value="private">Private (recommended for testing)</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></div><div><label className="il-label" htmlFor="il-scroll">AUTO-SCROLL METHOD</label><select id="il-scroll" value={settings.scroll} onChange={(event) => update('scroll', event.target.value as Settings['scroll'])}><option value="wheel">Mouse wheel</option><option value="arrow">Down arrow</option></select></div></div>
                   <label className="il-option"><input type="checkbox" checked={settings.mobileLayout} onChange={(event) => update('mobileLayout', event.target.checked)}/><span><b>Mobile portrait Reels (recommended)</b><small>Uses a phone-size viewport and touch emulation. Keep the X11 screen and Chromium kiosk in portrait orientation.</small></span></label>
                   <div><label className="il-label" htmlFor="il-frame">YOUTUBE LIVE VIDEO LAYOUT</label><select id="il-frame" value={settings.frame} onChange={(event) => update('frame', event.target.value as Settings['frame'])} disabled={!settings.mobileLayout}><option value="iphone">iPhone frame — zoom into current Reel (recommended)</option><option value="none">Original X11 screen — no phone frame</option></select><p className="il-hint">The iPhone frame appears in your YouTube broadcast, not the Chromium/noVNC desktop. It focuses on the playing video and hides empty Instagram page margins. Audio and auto-scroll are unchanged.</p></div>
@@ -366,7 +384,7 @@ export default function InstagramLivePage() {
                   const value = event.target.value; setYoutubePreviewLink(value);
                   if (selectedId) localStorage.setItem(`streamforge-youtube-preview-${selectedId}`, value);
                 }}/><small>{previewEmbed ? 'Showing the actual YouTube player (usually delayed). Private or non-embeddable broadcasts may not play here.' : 'Paste the YouTube Studio Live watch URL, or enable automatic event creation. This does not need your stream key.'}</small></div>
-                <div className="il-preview-meta"><span><Clock3 size={16}/> {status?.startedAt ? `Live since ${formatTime(status.startedAt)}` : 'Not streaming'}</span><span><Monitor size={16}/> {settings ? `${settings.captureWidth} × ${settings.captureHeight}` : '—'}</span></div>
+                <div className="il-preview-meta"><span><Clock3 size={16}/> {status?.startedAt ? `Live since ${formatTime(status.startedAt)}` : 'Not streaming'}</span><span><Monitor size={16}/> Output {outputLabel}</span></div>
                 <label className="il-rights"><input type="checkbox" checked={rights} onChange={(event) => setRights(event.target.checked)}/><span><b>I have permission to rebroadcast these Reels and their audio.</b><small>Other accounts&apos; content can trigger copyright claims and platform enforcement. Only stream content you own or are licensed to share.</small></span></label>
                 {runningHere ? <button className="il-stop-btn" onClick={stop} disabled={Boolean(busy)}><Square size={18} fill="currentColor"/>{busy === 'stop' ? 'Stopping…' : 'Stop livestream'}</button> : <button className="il-start-btn" onClick={start} disabled={Boolean(startDisabledReason)}><Play size={19} fill="currentColor"/>{busy === 'start' ? 'Starting…' : runningElsewhere ? 'Another channel is live' : settings?.sourceMode === 'direct' ? 'Start Direct MP4 livestream' : 'Start Reels livestream'}</button>}
                 {!runningHere && startDisabledReason && <p className="il-start-blocker" role="status">{startDisabledReason}</p>}

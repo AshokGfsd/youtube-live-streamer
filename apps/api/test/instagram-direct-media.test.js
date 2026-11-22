@@ -40,6 +40,21 @@ test('FFmpeg direct playlist is real-time, normalizes portrait video and copies 
   assert.ok(once.includes('-vf'));
 });
 
+test('direct MP4 output sizes are selectable independently of the virtual browser dimensions', () => {
+  const settings = validateInstagramSettings({ sourceMode: 'direct', streamResolution: '480x854', frame: 'none' });
+  const args = buildDirectMediaFfmpegArgs(settings, 'rtmps://a.rtmps.youtube.com/live2', 'SECRET',
+    '/tmp/private/playlist.ffconcat', '/tmp/frame.svg');
+  assert.match(args[args.indexOf('-vf') + 1], /scale=480:854:force_original_aspect_ratio=decrease/);
+  assert.match(args[args.indexOf('-vf') + 1], /pad=480:854/);
+  assert.equal(settings.captureWidth, 540);
+  assert.equal(settings.captureHeight, 960);
+
+  const framed = buildDirectMediaFfmpegArgs({ ...settings, frame: 'iphone', streamResolution: '720x1280' },
+    'rtmps://a.rtmps.youtube.com/live2', 'SECRET', '/tmp/private/playlist.ffconcat', '/tmp/frame.svg');
+  assert.match(framed[framed.indexOf('-filter_complex') + 1], /pad=720:1280/);
+  assert.ok(framed.includes('[composed]'));
+});
+
 test('direct media mode uses no browser, keeps URL secrets private and removes manifest on stop', async () => {
   let args;
   let child;
