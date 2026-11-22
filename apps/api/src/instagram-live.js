@@ -136,6 +136,7 @@ export class InstagramLiveManager {
     this.mediaCollector = new InstagramMediaCollector({ port: Number(env.INSTAGRAM_CDP_PORT || 9222) });
     this.studio = studio;
     this.env = env;
+    this.isTermux = env.STREAMFORGE_PLATFORM === 'termux' || String(env.PREFIX || '').startsWith('/data/data/com.termux/');
     this.spawnProcess = spawnProcess;
     this.makeController = makeController;
     this.process = null;
@@ -176,10 +177,14 @@ export class InstagramLiveManager {
       saved = rows[0]?.settings_json;
     } else saved = await this.store.getInstagramSettings(id);
     const object = typeof saved === 'string' ? JSON.parse(saved) : saved;
-    return validateInstagramSettings({ ...DEFAULTS,
+    const settings = { ...DEFAULTS, ...(this.isTermux ? { sourceMode: 'direct', frame: 'none', streamResolution: '360x640', bitrateKbps: 800 } : {}),
       title: channel.defaultTitle || '', description: channel.defaultDescription || '', privacy: channel.privacy || 'private',
       ...(object || {}),
-    });
+    };
+    // Android FFmpeg builds may not include SVG decoding for the browser-only
+    // decorative phone frame. Use the direct video itself on Termux.
+    if (this.isTermux) settings.frame = 'none';
+    return validateInstagramSettings(settings);
   }
 
   async saveSettings(id, data) {
@@ -199,6 +204,8 @@ export class InstagramLiveManager {
 
   getStatus() {
     return { running: Boolean(this.process), starting: this.starting, sourceMode: this.sourceMode,
+      platform: this.isTermux ? 'termux' : 'desktop',
+      capabilities: { browserCapture: !this.isTermux, browserCollector: !this.isTermux, directMedia: true },
       outputResolution: this.outputResolution,
       activeChannelId: this.activeChannelId, startedAt: this.startedAt,
       feed: this.feedState ? { phase: this.feedState.phase, activeId: this.feedState.activeId,
@@ -210,11 +217,13 @@ export class InstagramLiveManager {
   }
 
   async browserStatus() {
+    if (this.isTermux) throw new ChannelError('Browser screen capture is not supported in Termux. Choose Direct MP4 playlist mode.', 400);
     await findInstagramTab(Number(this.env.INSTAGRAM_CDP_PORT || 9222));
     return { ready: true, message: 'Instagram Reels tab found in private Chrome' };
   }
 
   async currentReel() {
+    if (this.isTermux) throw new ChannelError('Current Reel requires desktop Chrome. Import direct media URLs on Termux instead.', 400);
     const tab = await findInstagramTab(Number(this.env.INSTAGRAM_CDP_PORT || 9222));
     const reel = normalizeReelUrl(tab.url);
     return { ...reel, label: `Reel ${reel.shortcode}` };
@@ -228,6 +237,9 @@ export class InstagramLiveManager {
     const channel = await this.store.get(id);
     if (!channel.completedAt || !channel.streamKeySecret) throw new ChannelError('Finish YouTube channel setup and save a stream key first');
     const settings = await this.getSettings(id);
+    if (this.isTermux && settings.sourceMode === 'browser') {
+      throw new ChannelError('Termux supports Direct MP4 playlists only. Enable Direct MP4 mode and import media URLs.', 400);
+    }
     const directUrls = settings.sourceMode === 'direct' ? validateDirectMediaPlaylist(mediaUrls) : [];
     const chosenReels = settings.sourceMode === 'browser' && settings.playlistMode === 'selected' ? await this.playlist.list(id) : [];
     if (settings.sourceMode === 'browser' && settings.playlistMode === 'selected' && chosenReels.length === 0) {
@@ -467,7 +479,7 @@ export class InstagramLiveManager {
 export function registerInstagramLiveRoutes(app, { manager, localOnly }) {
   const ensureReady = (_req, _res, next) => {
     if (!localOnly) return next(new ChannelError('Instagram screen capture is available only in private loopback mode', 403));
-    if (!manager) return next(new ChannelError('Configure MySQL multi-channel support first', 503));
+    if (!manager) return next(new ChannelError('Configure file or MySQL channel storage first', 503));
     next();
   };
   app.use('/api/instagram-live', ensureReady);
@@ -478,6 +490,7 @@ export function registerInstagramLiveRoutes(app, { manager, localOnly }) {
     await manager.mediaProber.probe(req.body?.url, { decode: req.body?.decode ?? false })
   ));
   app.post('/api/instagram-live/media/collect/start', (req, res) => {
+    if (manager.isTermux) throw new ChannelError('Automatic Instagram collection requires desktop Chrome. Import direct MP4 URLs in Termux.', 400);
     if ((manager.process || manager.starting) && manager.sourceMode !== 'direct') {
       throw new ChannelError('Stop the browser-capture livestream before collecting Instagram search videos', 409);
     }

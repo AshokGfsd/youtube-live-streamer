@@ -163,6 +163,11 @@
 .il-playlist-paste:hover:not(:disabled) { background: #265767; }
 .il-media-probe .il-probe-upload { border-color: #a9c6bc; background: #f3f9f6; color: #2b716a; }
 .il-media-probe .il-option { background: #f1f7f4; }
+.il-android-tip { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border: 1px solid #b7ddd0; border-radius: 12px; background: #eaf7f1; color: #236953; }
+.il-android-tip > svg { flex-shrink: 0; margin-top: 3px; }
+.il-android-tip b { font-size: 13px; color: #135844; }
+.il-android-tip p { margin: 6px 0 0; font-size: 12px; line-height: 1.6; }
+.il-android-tip code { overflow-wrap: anywhere; font-size: 12px; }
 .il-diagnostics { background: #fff; }
 .il-terminal { border: 1px solid #213f4c; background: #132e3b; }
 .il-terminal p { color: #b6cccf; }
@@ -219,6 +224,27 @@
   .il-control { padding: 0; }
   .il-stage .il-phone-preview { width: min(238px, 83%); }
   .il-live-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Touch-first controls for the Android/Termux local dashboard. */
+@media (max-width: 740px) {
+  .il-root { min-height: 100dvh; }
+  .il-main { min-width: 0; }
+  .il-container { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  .il-topbar { padding-top: env(safe-area-inset-top, 0px); min-height: 64px; height: auto; }
+  .il-jump-nav { scroll-snap-type: x proximity; scroll-padding: 8px; overscroll-behavior-x: contain; }
+  .il-jump-nav a { min-height: 48px; scroll-snap-align: start; }
+  .il-root :is(button, select, input:not([type=checkbox]), textarea, .il-probe-upload) { min-height: 48px; touch-action: manipulation; }
+  .il-root :is(input:not([type=checkbox]), select, textarea) { font-size: 16px; }
+  .il-root :is(.il-hint, .il-checklist p, .il-android-tip p, .il-advice p) { font-size: 13px; line-height: 1.6; color: #48626d; }
+  .il-panel-head span, .il-option small, .il-rights small { font-size: 12px; color: #57717b; }
+  .il-label { font-size: 11px; }
+  .il-playlist-actions, .il-probe-actions { gap: 10px; }
+  .il-live-video-grid button { min-height: 48px; }
+  .il-banner button, .il-diagnostics-title button { min-width: 48px; min-height: 48px; }
+  .il-option, .il-rights { min-height: 56px; }
+  .il-option input, .il-rights input { width: 22px; height: 22px; }
+  .il-root button:active:not(:disabled), .il-jump-nav a:active { filter: brightness(.94); }
 }
 
 @media (prefers-reduced-motion: reduce) {

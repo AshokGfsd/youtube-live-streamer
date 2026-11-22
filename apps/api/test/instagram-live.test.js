@@ -26,6 +26,30 @@ test('validates capture dimensions, scroll method, and rights settings', () => {
   assert.equal(validateInstagramSettings({ mobileLayout: false, captureWidth: 960, captureHeight: 540 }).mobileLayout, false);
 });
 
+test('Termux defaults to direct media and rejects unsupported browser capture', async () => {
+  const manager = new InstagramLiveManager({
+    env: { STREAMFORGE_PLATFORM: 'termux', INSTAGRAM_CDP_PORT: '9222' },
+    store: {
+      getPublic: async () => ({ defaultTitle: 'Phone live', defaultDescription: '', privacy: 'private' }),
+      getInstagramSettings: async () => null,
+      get: async () => ({ completedAt: new Date(), streamKeySecret: 'encrypted' }),
+    },
+    studio: { runningCount: () => 0, maxStreams: 1 },
+    makeController: () => { throw new Error('Chrome must not start on Termux'); },
+  });
+  const settings = await manager.getSettings('phone-channel');
+  assert.equal(settings.sourceMode, 'direct');
+  assert.equal(settings.frame, 'none');
+  assert.equal(settings.streamResolution, '360x640');
+  assert.equal(manager.getStatus().capabilities.browserCollector, false);
+  assert.equal(manager.getStatus().platform, 'termux');
+  await assert.rejects(() => manager.browserStatus(), /not supported in Termux/);
+  await assert.rejects(() => manager.currentReel(), /desktop Chrome/);
+  await assert.rejects(() => manager.start('phone-channel', true), /direct MP4|Direct MP4/);
+  manager.store.getInstagramSettings = async () => ({ sourceMode: 'browser' });
+  await assert.rejects(() => manager.start('phone-channel', true), /Termux supports Direct MP4/);
+});
+
 test('FFmpeg raw mode preserves existing X11 capture and YouTube RTMPS behavior', () => {
   const args = buildInstagramFfmpegArgs({ captureWidth: 540, captureHeight: 960, fps: 15, audio: 'silent', frame: 'none' },
     'rtmps://a.rtmps.youtube.com/live2', 'test-stream-key');

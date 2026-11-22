@@ -53,6 +53,7 @@ export default function ChannelsPage() {
   const [apiBase, setApiBase] = useState('');
   const [authToken, setAuthToken] = useState('');
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [storageMode, setStorageMode] = useState<'file' | 'mysql' | 'none'>('none');
   const [multiChannelEnabled, setMultiChannelEnabled] = useState(true);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [limit, setLimit] = useState(1);
@@ -88,8 +89,12 @@ export default function ChannelsPage() {
 
   const refresh = useCallback(async () => {
     if (!apiBase) return;
-    const result = await request<{ configured: boolean; channels: Channel[]; multiChannelEnabled?: boolean; maxConcurrentStreams: number }>('/api/channels');
+    const [result, health] = await Promise.all([
+      request<{ configured: boolean; channels: Channel[]; multiChannelEnabled?: boolean; maxConcurrentStreams: number }>('/api/channels'),
+      request<{ channelStorage: 'file' | 'mysql' | 'none' }>('/health'),
+    ]);
     setConfigured(result.configured);
+    setStorageMode(health.channelStorage);
     setMultiChannelEnabled(result.multiChannelEnabled !== false);
     setChannels(result.channels);
     setLimit(result.maxConcurrentStreams || 1);
@@ -115,6 +120,7 @@ export default function ChannelsPage() {
   }, [apiBase, refresh]);
 
   const selected = channels.find((channel) => channel.id === selectedId) || null;
+  const storageLabel = storageMode === 'file' ? 'encrypted local files' : storageMode === 'mysql' ? 'MySQL' : 'channel storage';
   const runningCount = channels.filter((channel) => channel.stream?.desiredRunning).length;
   const matching = channels.filter((channel) => `${channel.displayName} ${channel.handle}`.toLowerCase().includes(search.toLowerCase()));
 
@@ -128,7 +134,7 @@ export default function ChannelsPage() {
     try {
       const newChannel = await request<Channel>('/api/channels', { method: 'POST', body: '{}' });
       setEditingId(newChannel.id); setSelectedId(newChannel.id); setDraft({ ...EMPTY_DRAFT });
-      setStep(1); setLastSaved('Draft created in MySQL');
+      setStep(1); setLastSaved(`Draft created in ${storageLabel}`);
       await refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not create a channel'); }
     finally { setBusy(null); }
@@ -138,7 +144,7 @@ export default function ChannelsPage() {
     setError(''); setNotice(''); setSelectedId(channel.id);
     setEditingId(channel.id); setDraft({ ...EMPTY_DRAFT, ...channel, streamKey: '' });
     setStep(channel.ready ? 1 : Math.min(4, Math.max(1, channel.wizardStep + 1)));
-    setLastSaved(channel.wizardStep ? `Steps 1–${channel.wizardStep} saved in MySQL` : 'Draft saved in MySQL');
+    setLastSaved(channel.wizardStep ? `Steps 1–${channel.wizardStep} saved to ${storageLabel}` : `Draft saved to ${storageLabel}`);
   }
 
   async function saveStep(andContinue: boolean) {
@@ -150,13 +156,13 @@ export default function ChannelsPage() {
       : { defaultTitle: draft.defaultTitle, defaultDescription: draft.defaultDescription, privacy: draft.privacy, loop: draft.loop };
     try {
       await request(`/api/channels/${editingId}/steps/${step}`, { method: 'PATCH', body: JSON.stringify(payload) });
-      setLastSaved(`Step ${step} saved successfully to MySQL`);
+      setLastSaved(`Step ${step} saved successfully to ${storageLabel}`);
       if (step === 3) setDraft((current) => ({ ...current, streamKey: '' }));
       if (andContinue) {
         if (step < 4) setStep((current) => current + 1);
         else {
           await request(`/api/channels/${editingId}/complete`, { method: 'POST', body: '{}' });
-          setNotice('Channel is ready! Its stream key and details are saved in MySQL.');
+          setNotice(`Channel is ready! Its stream key and details are saved to ${storageLabel}.`);
           setEditingId(null);
         }
       }
@@ -224,20 +230,20 @@ export default function ChannelsPage() {
         <Link href="/instagram-live" className="ch-nav-item"><Instagram size={18}/> Reels Live studio <ArrowRight size={14} className="ch-end"/></Link>
         <div className="ch-nav-label ch-nav-secondary">QUICK ACCESS</div>
         <a href="https://studio.youtube.com/" target="_blank" rel="noopener noreferrer" className="ch-nav-item"><Youtube size={18}/> YouTube Studio <ExternalLink size={14} className="ch-end"/></a>
-        <div className="ch-sidebar-bottom"><div className="ch-security"><ShieldCheck size={19}/><div><b>Private by design</b><p>Stream keys are encrypted in your database and never shown in this dashboard.</p></div></div><div className="ch-profile"><div>SF</div><span><b>My workspace</b><small>{multiChannelEnabled ? 'Multichannel studio' : 'Single-channel studio'}</small></span></div></div>
+        <div className="ch-sidebar-bottom"><div className="ch-security"><ShieldCheck size={19}/><div><b>Private by design</b><p>Stream keys are encrypted in {storageLabel} and never shown in this dashboard.</p></div></div><div className="ch-profile"><div>SF</div><span><b>My workspace</b><small>{multiChannelEnabled ? 'Multichannel studio' : 'Single-channel studio'}</small></span></div></div>
       </aside>
 
       <main className="ch-main">
-        <header className="ch-topbar"><div className="ch-breadcrumb"><Link href="/">Workspace</Link><ChevronRight size={14}/><b>My Channels</b></div><div className="ch-top-right"><span><Database size={14}/> {configured ? 'MySQL connected' : 'Database setup'}</span><div className="ch-top-avatar">SF</div></div></header>
+        <header className="ch-topbar"><div className="ch-breadcrumb"><Link href="/">Workspace</Link><ChevronRight size={14}/><b>My Channels</b></div><div className="ch-top-right"><span><Database size={14}/> {configured ? storageMode === 'file' ? 'On-device storage' : 'MySQL connected' : 'Storage setup'}</span><div className="ch-top-avatar">SF</div></div></header>
         <div className="ch-content">
-          <div className="ch-hero"><div><span className="ch-eyebrow"><span/> YOUR BROADCAST STUDIO</span><h1>One studio.<br/><em>{multiChannelEnabled ? 'Every channel.' : 'One channel.'}</em></h1><p>{multiChannelEnabled ? 'Create, configure and manage your YouTube channels from one beautiful workspace.' : 'Configure your single YouTube channel from your private .env or edit its saved profile here.'} Every setup step is saved directly to MySQL.</p><div className="ch-hero-meta"><span><ShieldCheck size={15}/> Encrypted credentials</span><span><Save size={15}/> Step-by-step saving</span></div></div><div className="ch-hero-art" aria-hidden="true"><div className="ch-orbit ch-orbit-one"/><div className="ch-orbit ch-orbit-two"/><div className="ch-center-orb"><Youtube size={39}/></div><div className="ch-orb-icon ch-orb-left"><Tv2 size={23}/></div><div className="ch-orb-icon ch-orb-right"><Radio size={23}/></div><div className="ch-art-label"><span className="ch-art-pulse"/> YOUR CHANNEL</div></div></div>
+          <div className="ch-hero"><div><span className="ch-eyebrow"><span/> YOUR BROADCAST STUDIO</span><h1>One studio.<br/><em>{multiChannelEnabled ? 'Every channel.' : 'One channel.'}</em></h1><p>{multiChannelEnabled ? 'Create, configure and manage your YouTube channels from one beautiful workspace.' : 'Configure your single YouTube channel from your private .env or edit its saved profile here.'} Every setup step is saved to {storageLabel}.</p><div className="ch-hero-meta"><span><ShieldCheck size={15}/> Encrypted credentials</span><span><Save size={15}/> Step-by-step saving</span></div></div><div className="ch-hero-art" aria-hidden="true"><div className="ch-orbit ch-orbit-one"/><div className="ch-orbit ch-orbit-two"/><div className="ch-center-orb"><Youtube size={39}/></div><div className="ch-orb-icon ch-orb-left"><Tv2 size={23}/></div><div className="ch-orb-icon ch-orb-right"><Radio size={23}/></div><div className="ch-art-label"><span className="ch-art-pulse"/> YOUR CHANNEL</div></div></div>
 
           {(error || notice) && <div role={error ? 'alert' : 'status'} className={'ch-toast ' + (error ? 'ch-toast-error' : '')}><span>{error ? <CircleAlert size={18}/> : <CheckCircle2 size={18}/>} {error || notice}</span><button onClick={() => { setError(''); setNotice(''); }} aria-label="Dismiss"><X size={17}/></button></div>}
 
-          {configured === false && <div className="ch-setup-warning"><Database size={27}/><div><h3>Connect your MySQL database</h3><p>Channel management requires MYSQL_DATABASE and CHANNEL_ENCRYPTION_KEY in your Termux .env. Install MariaDB, create your database, then restart StreamForge. Your original Live Studio still works.</p><code>pkg install mariadb -y</code></div></div>}
+          {configured === false && <div className="ch-setup-warning"><Database size={27}/><div><h3>Configure channel storage</h3><p>For Termux, set <code>CHANNEL_STORAGE=file</code> and <code>LOCAL_ONLY_MODE=true</code> in your private .env and restart StreamForge. MySQL is optional. Check the API logs if storage still appears unavailable.</p></div></div>}
 
           <section className="ch-stats">
-            <div className="ch-stat"><span className="ch-stat-icon ch-stat-teal"><Layers3 size={19}/></span><span className="ch-stat-label">TOTAL CHANNELS</span><strong>{String(channels.length).padStart(2, '0')}</strong><small>Stored in MySQL</small></div>
+            <div className="ch-stat"><span className="ch-stat-icon ch-stat-teal"><Layers3 size={19}/></span><span className="ch-stat-label">TOTAL CHANNELS</span><strong>{String(channels.length).padStart(2, '0')}</strong><small>Stored in {storageLabel}</small></div>
             <div className="ch-stat"><span className="ch-stat-icon ch-stat-blue"><CheckCircle2 size={19}/></span><span className="ch-stat-label">READY TO STREAM</span><strong>{String(channels.filter((c) => c.ready).length).padStart(2, '0')}</strong><small>Fully configured</small></div>
             <div className="ch-stat"><span className="ch-stat-icon ch-stat-red"><Radio size={19}/></span><span className="ch-stat-label">ACTIVE STREAMS</span><strong>{String(runningCount).padStart(2, '0')} <span>/ {limit}</span></strong><small>Device concurrency limit</small></div>
           </section>
@@ -260,13 +266,13 @@ export default function ChannelsPage() {
             <div className="ch-details-body"><div className="ch-detail-item"><span>Channel status</span><b>{selected.stream?.desiredRunning ? 'Broadcasting' : selected.ready ? 'Ready' : `Draft · Step ${selected.wizardStep}/4`}</b></div><div className="ch-detail-item"><span>YouTube ID</span><b>{selected.youtubeChannelId || 'Not added'}</b></div><div className="ch-detail-item"><span>Google connection</span><b>{selected.youtubeConnected ? 'Connected' : 'Not connected'}</b></div><div className="ch-detail-item"><span>Last updated</span><b>{formatDate(selected.updatedAt)}</b></div></div>
             <div className="ch-video-area"><div className="ch-video-symbol"><Clapperboard size={24}/></div><div><b>{selected.stream?.video?.name || 'No video uploaded'}</b><p>{selected.stream?.video ? `${videoSize(selected.stream.video.sizeBytes)} · Ready for this channel` : 'Upload a video for this specific channel to begin streaming.'}</p></div><input ref={uploadInput} type="file" accept=".mp4,.mkv,.mov,.webm,.m4v" hidden onChange={upload}/><button className="ch-secondary" disabled={!!busy || !!selected.stream?.desiredRunning} onClick={() => uploadInput.current?.click()}><UploadCloud size={17}/>{busy === 'upload' ? `Uploading ${uploadProgress ?? 0}%` : 'Upload video'}</button></div>
             {uploadProgress !== null && <div className="ch-upload-bar"><span style={{ width: `${uploadProgress}%` }}/></div>}
-            <div className="ch-action-row"><div className="ch-action-hint"><ShieldCheck size={17}/> {selected.hasStreamKey ? 'YouTube stream key encrypted and stored in MySQL.' : 'Add your stream key in the connection step.'}</div><div className="ch-actions">{selected.stream?.desiredRunning ? <button className="ch-stop" disabled={!!busy} onClick={() => perform(selected.id, 'stop')}><Square size={16}/> Stop stream</button> : <button className="ch-primary" disabled={!selected.ready || !selected.stream?.video || !!busy} onClick={() => perform(selected.id, 'start')}><Play size={17} fill="currentColor"/> Start stream</button>}{selected.youtubeConnected ? <button className="ch-secondary" disabled={!selected.stream?.video || !!busy || !!selected.stream?.desiredRunning} onClick={() => { setLiveTitle(selected.defaultTitle || selected.stream?.video?.name || 'My YouTube Live'); setLiveDescription(selected.defaultDescription); setLivePrivacy(selected.privacy); setLiveModal(true); }}>Create YouTube Live</button> : <button className="ch-secondary" disabled={!selected.ready || !!busy} onClick={() => window.location.assign(`${apiBase}/api/channels/${selected.id}/youtube/oauth/start`)}><Youtube size={17}/> Connect Google</button>}</div></div>
+            <div className="ch-action-row"><div className="ch-action-hint"><ShieldCheck size={17}/> {selected.hasStreamKey ? `YouTube stream key encrypted and stored in ${storageLabel}.` : 'Add your stream key in the connection step.'}</div><div className="ch-actions">{selected.stream?.desiredRunning ? <button className="ch-stop" disabled={!!busy} onClick={() => perform(selected.id, 'stop')}><Square size={16}/> Stop stream</button> : <button className="ch-primary" disabled={!selected.ready || !selected.stream?.video || !!busy} onClick={() => perform(selected.id, 'start')}><Play size={17} fill="currentColor"/> Start stream</button>}{selected.youtubeConnected ? <button className="ch-secondary" disabled={!selected.stream?.video || !!busy || !!selected.stream?.desiredRunning} onClick={() => { setLiveTitle(selected.defaultTitle || selected.stream?.video?.name || 'My YouTube Live'); setLiveDescription(selected.defaultDescription); setLivePrivacy(selected.privacy); setLiveModal(true); }}>Create YouTube Live</button> : <button className="ch-secondary" disabled={!selected.ready || !!busy} onClick={() => window.location.assign(`${apiBase}/api/channels/${selected.id}/youtube/oauth/start`)}><Youtube size={17}/> Connect Google</button>}</div></div>
           </section>}
-          <footer className="ch-footer">StreamForge Studio · Encrypted MySQL channel profiles <span>Self-hosted on your device</span></footer>
+          <footer className="ch-footer">StreamForge Studio · Encrypted channel profiles <span>Self-hosted on your device</span></footer>
         </div>
       </main>
 
-      {editingId && <div className="ch-wizard-overlay"><div className="ch-wizard" role="dialog" aria-modal="true" aria-labelledby="wizard-title"><div className="ch-wizard-side"><div className="ch-wizard-side-top"><div className="ch-wizard-small-mark"><WandSparkles size={20}/></div><span>CHANNEL SETUP</span></div><h2>Let&apos;s make<br/>it <em>official.</em></h2><p>Four simple steps. Your progress is saved securely to MySQL as you go.</p><div className="ch-wizard-steps">{STEPS.map((item, index) => { const Icon = item.icon; const number = index + 1; return <div className={'ch-wizard-step ' + (step === number ? 'ch-wizard-step-active' : '') + (step > number ? ' ch-wizard-step-done' : '')} key={number}><div className="ch-step-number">{step > number ? <Check size={16}/> : <Icon size={17}/>}</div><div><b>{item.title}</b><small>{item.sub}</small></div></div>; })}</div><div className="ch-wizard-security"><LockKeyhole size={17}/> Your private keys never appear in the channel list.</div></div>
+      {editingId && <div className="ch-wizard-overlay"><div className="ch-wizard" role="dialog" aria-modal="true" aria-labelledby="wizard-title"><div className="ch-wizard-side"><div className="ch-wizard-side-top"><div className="ch-wizard-small-mark"><WandSparkles size={20}/></div><span>CHANNEL SETUP</span></div><h2>Let&apos;s make<br/>it <em>official.</em></h2><p>Four simple steps. Your progress is saved securely to {storageLabel} as you go.</p><div className="ch-wizard-steps">{STEPS.map((item, index) => { const Icon = item.icon; const number = index + 1; return <div className={'ch-wizard-step ' + (step === number ? 'ch-wizard-step-active' : '') + (step > number ? ' ch-wizard-step-done' : '')} key={number}><div className="ch-step-number">{step > number ? <Check size={16}/> : <Icon size={17}/>}</div><div><b>{item.title}</b><small>{item.sub}</small></div></div>; })}</div><div className="ch-wizard-security"><LockKeyhole size={17}/> Your private keys never appear in the channel list.</div></div>
         <div className="ch-wizard-right"><div className="ch-wizard-header"><span>STEP {String(step).padStart(2, '0')} / 04</span><button aria-label="Close wizard" onClick={() => { setEditingId(null); setError(''); }}><X size={21}/></button></div><div className="ch-wizard-content"><div className="ch-step-icon">{step === 1 ? <Tv2 size={25}/> : step === 2 ? <Sparkles size={25}/> : step === 3 ? <Radio size={25}/> : <Settings2 size={25}/>}</div><h2 id="wizard-title">{step === 1 ? 'Introduce your channel' : step === 2 ? 'Shape your brand' : step === 3 ? 'Connect your stream' : 'Set your defaults'}</h2><p className="ch-step-description">{step === 1 ? 'Add the identity you want to see across your workspace.' : step === 2 ? 'Keep the description, keywords, and category in one place.' : step === 3 ? 'Your stream key stays encrypted on your server, never in the browser after saving.' : 'Choose the settings we should remember each time you go live.'}</p>
           {step === 1 && <div className="ch-fields"><label>Channel display name <em>*</em><input value={draft.displayName} onChange={(e) => setField('displayName', e.target.value)} maxLength={100} placeholder="e.g. ClueRipple Live" autoFocus/></label><label>YouTube handle <small>Optional</small><div className="ch-input-prefix"><span>@</span><input value={draft.handle.replace(/^@/, '')} onChange={(e) => setField('handle', e.target.value)} placeholder="ClueRippleLive"/></div></label><label>YouTube channel URL <small>Optional</small><input value={draft.channelUrl} onChange={(e) => setField('channelUrl', e.target.value)} placeholder="https://www.youtube.com/@yourhandle"/></label><label>YouTube channel ID <small>Optional</small><input value={draft.youtubeChannelId} onChange={(e) => setField('youtubeChannelId', e.target.value)} placeholder="UCxxxxxxxxxxxxxxxxxxxxxx"/></label></div>}
           {step === 2 && <div className="ch-fields"><label>Channel description<textarea rows={4} maxLength={1000} value={draft.description} onChange={(e) => setField('description', e.target.value)} placeholder="Tell your viewers what makes your content special..."/></label><label>Keywords <small>Comma-separated</small><textarea rows={3} maxLength={500} value={draft.keywords} onChange={(e) => setField('keywords', e.target.value)} placeholder="brain teasers, live puzzles, satisfying videos"/></label><label>Category<select value={draft.category} onChange={(e) => setField('category', e.target.value)}><option>Entertainment</option><option>Education</option><option>Gaming</option><option>Howto &amp; Style</option><option>Science &amp; Technology</option><option>People &amp; Blogs</option></select></label><div className="ch-field-note"><CircleHelp size={16}/> Channel details here are saved as your private workspace profile; Google connection is separate.</div></div>}

@@ -20,16 +20,16 @@
 
 ## Multi-channel studio (new)
 
-Visit **`/channels`** to create and manage multiple YouTube channel profiles
+Visit **`/channels`** to create and manage YouTube channel profiles
 with an individual upload, stream key, live status and YouTube OAuth connection.
-A polished **four-step wizard** saves each completed step immediately into
-MySQL, keeping draft progress when you close or reload the dashboard. YouTube
+A polished **four-step wizard** saves each completed step immediately to
+the configured channel store (encrypted local files on Termux by default,
+or optional MySQL), keeping draft progress when you close or reload. YouTube
 stream keys and OAuth refresh tokens are encrypted with AES-256-GCM at rest.
 
-- **Android/Termux:** install the MySQL-compatible `mariadb` package, configure
-  `MYSQL_DATABASE` and `CHANNEL_ENCRYPTION_KEY`, then `git pull` and run
-  `bash start-android.sh`. See the complete [Android database installation and
-  channel wizard guide](deploy/termux/README-ANDROID.md#new-mysql-multi-channel-setup-android--termux).
+- **Android/Termux:** set `CHANNEL_STORAGE=file` and `MULTI_CHANNEL_ENABLED=false`
+  in your local `.env`, then run `bash start-android.sh`. No MySQL, Chrome or X11
+  is needed for Direct MP4 livestreams. See the [Termux guide](deploy/termux/README-ANDROID.md).
 - **Self-hosted API:** provide `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`,
   `MYSQL_PASSWORD`, `MYSQL_DATABASE`, and a **permanent** 64-hex-character
   `CHANNEL_ENCRYPTION_KEY` (generate with `openssl rand -hex 32`). The backend
@@ -38,8 +38,8 @@ stream keys and OAuth refresh tokens are encrypted with AES-256-GCM at rest.
   devices from overheating. More channel profiles can be saved than can stream
   simultaneously; each ready channel has its own video and FFmpeg state.
 - **Backward compatibility:** the original single-channel Live Studio and old
-  stream key in `.env` continue to work. A database is optional until you open
-  multi-channel management. For a **single-channel Google VM**, you can now also
+  stream key in `.env` continue to work. MySQL is optional when using file
+  storage. For a **single-channel Google VM**, you can now also
   use the Reels Live studio without a database by choosing `CHANNEL_STORAGE=file`.
 
 Never commit your database password, encryption key, OAuth client secret or
@@ -53,14 +53,14 @@ cannot restore the saved secret values.
 The GitHub repository includes the **prebuilt Android dashboard**. Run these once in Termux:
 
 ```bash
-pkg install git nodejs ffmpeg tmux -y
+pkg install git nodejs-lts ffmpeg tmux -y
 cd "$HOME"
 git clone https://github.com/AshokGfsd/youtube-live-streamer.git
 cd youtube-live-streamer
 bash start-android.sh
 ```
 
-On first launch, edit `~/StreamForge-Android/.env` to set your private `YOUTUBE_STREAM_KEY`, then run `bash start-android.sh` again. Open `http://127.0.0.1:4000` on the same phone. No dashboard login token is required.
+On first launch, edit `~/StreamForge-Android/.env` to set `CHANNEL_STORAGE=file` and your private `SINGLE_CHANNEL_STREAM_KEY` (or `YOUTUBE_STREAM_KEY` for the legacy uploader), then run `bash start-android.sh` again. Open `http://127.0.0.1:4000` on the same phone. No dashboard login token is required.
 
 **For future updates:**
 
@@ -70,7 +70,7 @@ git pull
 bash start-android.sh
 ```
 
-This refreshes the app, restarts its Termux background session, and preserves `~/StreamForge-Android/.env` and `~/StreamForge-Android/data/`. Stop any active YouTube broadcast before updating because the server restart interrupts the stream.
+This refreshes the app files and preserves `~/StreamForge-Android/.env`, `~/StreamForge-Android/data/` and an existing background session. To activate backend changes, stop any active YouTube broadcast first, run `tmux kill-session -t streamforge`, then `bash start-android.sh`.
 
 You can also run the **Node.js + FFmpeg backend on an Android phone in Termux**, with the Next.js dashboard precompiled on a computer or in GitHub Actions. See [Android instructions](deploy/termux/README-ANDROID.md). Run `npm run build:android` on a Node-capable desktop/CI machine to create an Android-ready folder under `dist/android/StreamForge-Android`. The user does not have to build Next.js on Android.
 

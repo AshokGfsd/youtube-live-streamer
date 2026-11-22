@@ -1,10 +1,10 @@
-# StreamForge for Android — no card, no VPS
+# StreamForge for Android / Termux — no VPS required
 
-> **Instagram Reels screen-capture preview:** on branch
-> `feature/instagram-auto-scroll-live`, see
-> `docs/instagram-reels-android-prototype.md` in your Git checkout and open
-> `http://127.0.0.1:4000/instagram-live` after installing the branch via
-> `bash start-android.sh`. This is experimental Android/X11 functionality.
+**Termux mode supports the existing dashboard, channel setup, video uploads and
+Direct MP4 → FFmpeg → YouTube streaming.** The Reels Live studio switches to
+Direct MP4 mode on Android. Browser/X11 capture, automated Instagram Chrome
+search/collection, and noVNC are desktop/Codespaces-only features. You do not
+need Chrome inside Termux to stream eligible direct MP4 links.
 
 This ZIP contains the **prebuilt Next.js dashboard** and the **Node.js + FFmpeg backend**. You don't need Docker, Oracle Cloud or a Next.js compiler on your Android phone.
 
@@ -15,14 +15,33 @@ This ZIP contains the **prebuilt Next.js dashboard** and the **Node.js + FFmpeg 
 The repository now includes prebuilt Android frontend files, so you don't need to compile Next.js on your phone:
 
 ```bash
-pkg install git nodejs ffmpeg tmux -y
+pkg update && pkg upgrade -y
+pkg install git nodejs-lts ffmpeg tmux -y
 cd "$HOME"
 git clone https://github.com/AshokGfsd/youtube-live-streamer.git
 cd youtube-live-streamer
 bash start-android.sh
 ```
 
-On the first run, set `YOUTUBE_STREAM_KEY` in `nano ~/StreamForge-Android/.env`, then run `bash start-android.sh` again. Open `http://127.0.0.1:4000`. For subsequent updates:
+On the first run, configure your private `~/StreamForge-Android/.env`:
+
+```dotenv
+LOCAL_ONLY_MODE=true
+LISTEN_HOST=127.0.0.1
+CHANNEL_STORAGE=file
+MULTI_CHANNEL_ENABLED=false
+SINGLE_CHANNEL_NAME=ClueRipple Live
+SINGLE_CHANNEL_STREAM_KEY=your-real-private-youtube-stream-key
+```
+
+Keep all other supplied defaults, and replace the stream key with your own key
+from YouTube Studio. Alternatively, use `YOUTUBE_STREAM_KEY` for the classic
+single-video page. Run `bash start-android.sh` again, then open
+**http://127.0.0.1:4000** in your phone browser. File mode encrypts channel
+credentials on disk and auto-generates a persistent encryption key in `data/`.
+No MariaDB setup is required for this default configuration.
+
+For subsequent updates:
 
 ```bash
 cd ~/youtube-live-streamer
@@ -30,13 +49,60 @@ git pull
 bash start-android.sh
 ```
 
-It preserves `.env` and `data/` in `~/StreamForge-Android`. Stop an active broadcast before updating: the start script restarts the Termux server. **Never expose port 4000 publicly** while in password-free local mode.
+It preserves `.env` and `data/` in `~/StreamForge-Android`. If the server is
+already running, the script leaves the existing `tmux` process intact to avoid
+interrupting an active broadcast. After stopping your livestream, apply the
+new API code with:
 
-## NEW: MySQL multi-channel setup (Android / Termux)
+```bash
+tmux kill-session -t streamforge
+bash start-android.sh
+```
+
+You can check whether it started with:
+
+```bash
+curl http://127.0.0.1:4000/health
+tmux capture-pane -pt streamforge -S -50
+```
+
+**Never expose port 4000 publicly** while in password-free local mode.
+
+## Reels Live on Termux (Direct MP4)
+
+1. Open **My Channels** and confirm your channel and private stream key are ready.
+2. Open **Reels Live**. The header should say **Android · Direct MP4**.
+3. Paste a direct, signed `https://...mp4` URL from a supported Instagram/Meta
+   CDN (`.fbcdn.net` or `.cdninstagram.com`), or import a JSON playlist with a
+   `directVideoUrls` array. An ordinary Instagram `/reel/` webpage link is
+   **not** a direct MP4 URL. You must have permission to rebroadcast the video.
+4. Use **Check media** then **Test 4s encoding** before streaming. Expiring CDN
+   links need to be replaced with fresh ones when they stop working.
+5. In Output settings choose **360p** or **480p** first. Keep your first YouTube
+   test private. Tick the rebroadcast rights confirmation, then press
+   **Start livestream**.
+6. To change videos on air, use **Choose the next video** or **Replace live
+   playlist**. This reconnects FFmpeg briefly, so YouTube may buffer.
+7. Check the actual broadcast in YouTube Studio. Use **Stop livestream** to end.
+
+On-device media URL imports stay in the browser tab memory, not in the channel
+database. Existing saved settings can override the new defaults; if a channel
+still has Browser source selected from an earlier install, switch it to
+**Direct MP4** before starting (or re-save the channel's Reels settings).
+
+**Android limitations:** keep Termux awake (`termux-wake-lock` is requested at
+startup), exempt it from aggressive Android battery optimization where possible,
+keep the device charging with stable Wi-Fi and cooling, and expect occasional
+OS-initiated background process termination. This is not guaranteed 24/7 hosting.
+The default file-backed channel mode does not migrate old MySQL channels:
+back up `~/StreamForge-Android/data/` and its generated key before switching
+phones or resetting app storage.
+
+## Optional: MySQL multi-channel setup (Android / Termux)
 
 The **My Channels** page (`http://127.0.0.1:4000/channels`) stores separate YouTube
 profiles, branding, stream destinations, default titles and privacy settings in
-MySQL-compatible MariaDB. Channel stream keys and Google refresh tokens are
+MySQL-compatible MariaDB if you explicitly set `CHANNEL_STORAGE=mysql`. Channel stream keys and Google refresh tokens are
 encrypted using AES-256-GCM **before** they are written to MySQL. The classic
 single-stream dashboard continues working without a database.
 
@@ -93,6 +159,7 @@ single-stream dashboard continues working without a database.
    database password:
 
    ```dotenv
+   CHANNEL_STORAGE=mysql
    MYSQL_HOST=127.0.0.1
    MYSQL_PORT=3306
    MYSQL_USER=streamforge

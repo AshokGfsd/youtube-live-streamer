@@ -30,9 +30,10 @@ type MediaProbeProps = {
   onDirectActiveChange: (active: boolean) => void;
   liveLocked: boolean;
   liveDirect: boolean;
+  browserCollectorAvailable?: boolean;
 };
 
-export default function MediaProbePanel({ request, onMediaUrlsChange, directActive, onDirectActiveChange, liveLocked, liveDirect }: MediaProbeProps) {
+export default function MediaProbePanel({ request, onMediaUrlsChange, directActive, onDirectActiveChange, liveLocked, liveDirect, browserCollectorAvailable = true }: MediaProbeProps) {
   const [url, setUrl] = useState('');
   const [imported, setImported] = useState<string[]>([]);
   const [importWarning, setImportWarning] = useState('');
@@ -58,6 +59,7 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
   }, [onMediaUrlsChange, onDirectActiveChange]);
 
   useEffect(() => {
+    if (!browserCollectorAvailable) return;
     let cancelled = false;
     (async () => {
       const status = await request<CollectorStatus>('/api/instagram-live/media/collect/status');
@@ -72,7 +74,7 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
       setCollector(status);
     })().catch(() => {});
     return () => { cancelled = true; };
-  }, [request, applyCollectedResults]);
+  }, [request, applyCollectedResults, browserCollectorAvailable]);
 
   useEffect(() => {
     if (collector?.phase !== 'running') return;
@@ -168,11 +170,11 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
     <section className="il-panel il-media-probe" id="il-media-discovery">
       <div className="il-panel-head">
         <div className="il-panel-icon il-magenta"><FlaskConical size={20}/></div>
-        <div><p>Video discovery</p><h2>Find videos for your stream</h2>
-          <span>Search Instagram by topic, then collect clips for a new live playlist.</span></div>
+        <div><p>Video discovery</p><h2>{browserCollectorAvailable ? 'Find videos for your stream' : 'Build your MP4 playlist'}</h2>
+          <span>{browserCollectorAvailable ? 'Search Instagram by topic, then collect clips for a new live playlist.' : 'Use permitted Instagram/Meta CDN video links, or import a playlist JSON. No Chrome or X11 required.'}</span></div>
       </div>
       <div className="il-playlist-fields">
-        <div className="il-auto-collector">
+        {browserCollectorAvailable ? <div className="il-auto-collector">
           <div className="il-two-cols">
             <div><label className="il-label" htmlFor="il-search-keyword">Topic or search keyword</label>
               <input id="il-search-keyword" type="text" maxLength={80} placeholder="e.g. naruto, puzzles, woodworking"
@@ -200,8 +202,8 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
           </div>}
           <p className="il-hint">Uses only your signed-in private Chrome session and visible Instagram Search results. Results depend on what Instagram loads; the requested count is not guaranteed. No login or CAPTCHA bypass.</p>
           {liveDirect && <p className="il-hint"><b>The current live keeps playing while you search.</b> Once new videos are collected, click Replace live playlist in Live Control to switch. Switching reconnects the encoder briefly.</p>}
-        </div>
-        <div><label className="il-label" htmlFor="il-media-url">Selected Instagram video URL</label>
+        </div> : <div className="il-android-tip" role="note"><Video size={19}/><div><b>Termux · Direct video mode</b><p>Paste a supported Instagram/Meta CDN HTTPS MP4 URL below, or import a JSON file containing <code>directVideoUrls</code>. You can prepare the playlist on a desktop and transfer the JSON to your phone.</p></div></div>}
+        <div><label className="il-label" htmlFor="il-media-url">Direct video URL</label>
           <div className="il-url-input"><Link2 size={17}/>
             <input id="il-media-url" type="url" autoComplete="off" spellCheck={false}
               placeholder="https://instagram...fbcdn.net/...mp4?..." value={url}
@@ -212,7 +214,7 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
               }} disabled={busy || liveLocked}/>
           </div>
         </div>
-        <label className="il-probe-upload"><Upload size={17}/><span>Import collector JSON</span>
+        <label className="il-probe-upload"><Upload size={17}/><span>Import MP4 playlist JSON</span>
           <input type="file" accept=".json,application/json" disabled={busy || liveLocked} onChange={(event) => {
             void importJson(event.target.files?.[0]); event.currentTarget.value = '';
           }}/>
@@ -226,11 +228,11 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
           </select>
           <p className="il-hint">This dropdown chooses just the clip to <b>test</b>. Direct livestream mode plays <b>all {imported.length} imported clips</b> in JSON order.</p>
         </div>}
-        <label className="il-option"><input type="checkbox" checked={directActive} disabled={liveLocked || liveDirect}
+        <label className="il-option"><input type="checkbox" checked={directActive} disabled={liveLocked || liveDirect || (!browserCollectorAvailable && directActive)}
           onChange={(event) => onDirectActiveChange(event.target.checked)}/>
           <span><b>Use these MP4 links as YouTube Live source</b>
             <small>{directActive ? 'Direct FFmpeg playlist mode ON — Start livestream will stream these MP4s, NOT the VNC browser.'
-              : 'OFF — Start livestream still captures the Chrome/VNC screen.'}</small></span>
+              : browserCollectorAvailable ? 'OFF — Start livestream still captures the Chrome/VNC screen.' : 'Enable this to convert an older Browser-mode channel to Android Direct MP4 mode.'}</small></span>
         </label>
         {directActive && <p className="il-hint"><b>{imported.length || (url.trim() ? 1 : 0)} MP4(s) ready.</b> {liveDirect ? 'These are your proposed next clips. The active stream is unchanged until you click Replace live playlist.' : 'Import a fresh JSON playlist before starting.'} Signed links can expire; for best reliability use clips with consistent video and audio tracks.</p>}
         {importWarning && <p className="il-hint" role="status">{importWarning}</p>}
@@ -254,7 +256,7 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
           <span>Audio: {result.audio ? `${result.audio.codec}, ${result.audio.channels ?? '?'} channel(s)` : 'No audio track (silent audio will be needed)'}</span>
         </div>
       </div>}
-      <p className="il-hint">If the terminal works but this probe returns 404, use Copy exact selected URL and test that same URL using a normal <code>ffprobe</code> command. The probe now uses the same supported options as the Codespaces FFprobe installation. Only HTTPS Instagram/Meta CDN MP4 links are accepted initially; signed video URLs may expire or redirect. Imports stay in browser memory and are not saved to Git or MySQL. Stream only content you have permission to rebroadcast.</p>
+      <p className="il-hint">If the terminal works but this probe returns 404, copy the exact URL and test it with <code>ffprobe</code>. Only supported HTTPS media hosts are accepted; signed links may expire. Imports stay in browser memory, not the channel database. Stream only content you have permission to rebroadcast.</p>
     </section>
   );
 }

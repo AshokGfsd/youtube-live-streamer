@@ -47,8 +47,9 @@ if [ "$needs_install" = true ]; then
 fi
 
 if tmux has-session -t streamforge 2>/dev/null; then
-  printf 'Restarting existing StreamForge session to apply latest changes...\n'
-  tmux kill-session -t streamforge
+  printf 'StreamForge is already running. Preserving the active session (and any livestream).\n'
+  printf 'To apply updated backend code, stop your livestream, then run:\n'
+  printf '  tmux kill-session -t streamforge\n  bash start-android.sh\n'
 fi
 
 (cd "$APP_DIR" && bash start.sh)
