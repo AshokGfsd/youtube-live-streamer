@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, CircleAlert, Copy, FlaskConical, Link2, LoaderCircle, Search, Upload, Video } from 'lucide-react';
 
 type ProbeResult = {
@@ -44,13 +44,34 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
   const [collector, setCollector] = useState<CollectorStatus | null>(null);
   const [collectBusy, setCollectBusy] = useState(false);
 
+  const applyCollectedResults = useCallback((results: CollectorResults) => {
+    if (results.directVideoUrls.length) {
+      setImported(results.directVideoUrls);
+      setUrl(results.directVideoUrls[0]);
+      setError(''); setResult(null); setImportWarning(''); setCopied(false);
+      onMediaUrlsChange(results.directVideoUrls);
+      onDirectActiveChange(true);
+    } else if (results.phase === 'completed') {
+      setError('No direct MP4 elements were exposed by Instagram. Sign in, try another keyword, or use manual JSON import.');
+    }
+  }, [onMediaUrlsChange, onDirectActiveChange]);
+
   useEffect(() => {
     let cancelled = false;
-    request<CollectorStatus>('/api/instagram-live/media/collect/status')
-      .then((status) => { if (!cancelled && status.phase === 'running') setCollector(status); })
-      .catch(() => {});
+    (async () => {
+      const status = await request<CollectorStatus>('/api/instagram-live/media/collect/status');
+      if (cancelled) return;
+      // A completed collection can survive a page reload. Restore the actual
+      // URLs as well as the progress indicator so Start is enabled again.
+      if (status.phase === 'completed' || status.phase === 'stopped' || status.phase === 'failed') {
+        const results = await request<CollectorResults>('/api/instagram-live/media/collect/results');
+        if (cancelled) return;
+        applyCollectedResults(results);
+      }
+      setCollector(status);
+    })().catch(() => {});
     return () => { cancelled = true; };
-  }, [request]);
+  }, [request, applyCollectedResults]);
 
   useEffect(() => {
     if (collector?.phase !== 'running') return;
@@ -59,24 +80,18 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
       try {
         const status = await request<CollectorStatus>('/api/instagram-live/media/collect/status');
         if (cancelled) return;
-        setCollector(status);
         if (status.phase !== 'running') {
+          // Fetch the MP4s BEFORE changing phase. Updating collector first
+          // tears down this polling effect and discards the in-flight results.
           const results = await request<CollectorResults>('/api/instagram-live/media/collect/results');
           if (cancelled) return;
-          if (results.directVideoUrls.length) {
-            setImported(results.directVideoUrls);
-            setUrl(results.directVideoUrls[0]);
-            setError(''); setResult(null); setImportWarning(''); setCopied(false);
-            onMediaUrlsChange(results.directVideoUrls);
-            onDirectActiveChange(true);
-          } else if (status.phase === 'completed') {
-            setError('No direct MP4 elements were exposed by Instagram. Sign in, try another keyword, or use manual JSON import.');
-          }
+          applyCollectedResults(results);
         }
+        setCollector(status);
       } catch (cause) { if (!cancelled) setError((cause as Error).message); }
     }, 1300);
     return () => { cancelled = true; clearInterval(poll); };
-  }, [collector?.phase, request, onMediaUrlsChange, onDirectActiveChange]);
+  }, [collector?.phase, request, applyCollectedResults]);
 
   async function startCollection() {
     if (liveLocked || collectBusy || collector?.phase === 'running') return;
@@ -85,6 +100,9 @@ export default function MediaProbePanel({ request, onMediaUrlsChange, directActi
       const status = await request<CollectorStatus>('/api/instagram-live/media/collect/start', {
         method: 'POST', body: JSON.stringify({ query: searchKeyword.trim(), count: searchCount }),
       });
+      setImported([]);
+      setUrl('');
+      onMediaUrlsChange([]);
       setCollector(status);
     } catch (cause) { setError((cause as Error).message); }
     finally { setCollectBusy(false); }

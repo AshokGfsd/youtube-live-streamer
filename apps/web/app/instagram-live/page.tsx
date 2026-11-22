@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Activity, ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, CircleAlert, CircleCheck, Clapperboard,
@@ -54,6 +54,7 @@ export default function InstagramLivePage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [advanced, setAdvanced] = useState(false);
+  const pendingDirectMode = useRef<boolean | null>(null);
 
   const request = useCallback(async <T,>(url: string, init: RequestInit = {}): Promise<T> => {
     const response = await fetch(baseUrl + url, {
@@ -93,9 +94,15 @@ export default function InstagramLivePage() {
   useEffect(() => {
     if (!selectedId || !baseUrl) return;
     let cancelled = false;
+    pendingDirectMode.current = null;
     setSettings(null); setLoadedId(''); setRights(false); setSaveState('idle');
     request<Settings>(`/api/instagram-live/${selectedId}`).then((value) => {
-      if (!cancelled) { setSettings(value); setLoadedId(selectedId); setError(''); }
+      if (!cancelled) {
+        setSettings(pendingDirectMode.current === null ? value : {
+          ...value, sourceMode: pendingDirectMode.current ? 'direct' : 'browser',
+        });
+        setLoadedId(selectedId); setError('');
+      }
     }).catch((cause) => { if (!cancelled) setError(cause.message); });
     return () => { cancelled = true; };
   }, [selectedId, baseUrl, request]);
@@ -128,6 +135,23 @@ export default function InstagramLivePage() {
   const runningElsewhere = Boolean((status?.running || status?.starting) && status.activeChannelId !== selectedId);
   const playlistReady = Boolean(selectedId && playlistLoadedId === selectedId);
   const playlistLocked = playlistBusy || !playlistReady || runningHere || Boolean(status?.starting);
+  const startDisabledReason = !settings ? 'Select a YouTube channel and wait for its settings to load.'
+    : !selected?.ready ? 'Finish your YouTube channel setup and save a stream key in My Channels.'
+    : !rights ? 'Confirm you have permission to rebroadcast the selected media.'
+    : busy || status?.starting ? 'Wait for the current action to finish.'
+    : runningElsewhere ? 'Stop the other channel livestream first.'
+    : settings.sourceMode === 'direct' && !directMediaUrls.length
+      ? 'The collection count is not the livestream playlist. Wait for Imported Direct URLs to appear, or import the collector JSON.'
+    : settings.sourceMode === 'browser' && settings.playlistMode === 'selected' && (!playlistReady || !playlist.length)
+      ? 'Add at least one Reel to the selected playlist first.'
+    : '';
+
+  const changeDirectMode = useCallback((active: boolean) => {
+    // The collector may complete before the selected channel settings arrive.
+    pendingDirectMode.current = active;
+    setSettings((current) => current ? { ...current, sourceMode: active ? 'direct' : 'browser' } : current);
+    setNotice('');
+  }, []);
 
   function update<K extends keyof Settings>(field: K, value: Settings[K]) {
     setSettings((current) => current ? { ...current, [field]: value } : current);
@@ -273,7 +297,7 @@ export default function InstagramLivePage() {
               </section>
 
               <MediaProbePanel key={selectedId} request={request} onMediaUrlsChange={setDirectMediaUrls}
-                directActive={settings?.sourceMode === 'direct'} onDirectActiveChange={(active) => update('sourceMode', active ? 'direct' : 'browser')}
+                directActive={settings?.sourceMode === 'direct'} onDirectActiveChange={changeDirectMode}
                 liveLocked={runningHere || Boolean(status?.starting)}/>
 
               <section className="il-panel"><div className="il-panel-head"><div className="il-panel-icon il-purple"><Settings2 size={20}/></div><div><p>STEP 04</p><h2>Broadcast settings</h2><span>Changes automatically save to your MySQL channel profile.</span></div><div className="il-save-state">{saveState === 'saving' ? <><LoaderCircle size={14} className="il-spin"/> Saving</> : saveState === 'saved' ? <><Check size={14}/> Saved</> : <><Save size={14}/> Draft</>}</div></div>
@@ -292,7 +316,9 @@ export default function InstagramLivePage() {
                 <div className="il-phone-preview"><div className="il-phone-notch"/><div className="il-preview-inner"><Instagram size={42}/><h3>{settings?.sourceMode === 'direct' ? 'Direct MP4 playlist' : settings?.playlistMode === 'selected' ? 'Selected Reels playlist' : 'Instagram feed capture'}</h3><p>{settings?.sourceMode === 'direct' ? `${status?.playlist?.total ?? directMediaUrls.length} direct MP4 clips. FFmpeg streams them without Chrome/VNC capture.` : status?.playlist ? `Playing Reel ${status.playlist.current} of ${status.playlist.total}.` : 'Playback appears in your private noVNC Chrome desktop. Check YouTube Studio for the actual broadcast preview.'}</p><span className="il-preview-chip"><Eye size={15}/> {settings?.sourceMode === 'direct' ? 'Source · Direct MP4' : 'Screen source · X11'}</span></div></div>
                 <div className="il-preview-meta"><span><Clock3 size={16}/> {status?.startedAt ? `Live since ${formatTime(status.startedAt)}` : 'Not streaming'}</span><span><Monitor size={16}/> {settings ? `${settings.captureWidth} × ${settings.captureHeight}` : '—'}</span></div>
                 <label className="il-rights"><input type="checkbox" checked={rights} onChange={(event) => setRights(event.target.checked)}/><span><b>I have permission to rebroadcast these Reels and their audio.</b><small>Other accounts&apos; content can trigger copyright claims and platform enforcement. Only stream content you own or are licensed to share.</small></span></label>
-                {runningHere ? <button className="il-stop-btn" onClick={stop} disabled={Boolean(busy)}><Square size={18} fill="currentColor"/>{busy === 'stop' ? 'Stopping…' : 'Stop livestream'}</button> : <button className="il-start-btn" onClick={start} disabled={!settings || !selected?.ready || !rights || Boolean(busy) || runningElsewhere || (settings?.sourceMode === 'direct' ? !directMediaUrls.length : settings?.playlistMode === 'selected' && (!playlistReady || !playlist.length))}><Play size={19} fill="currentColor"/>{busy === 'start' ? 'Starting…' : runningElsewhere ? 'Another channel is live' : settings?.sourceMode === 'direct' ? 'Start Direct MP4 livestream' : 'Start Reels livestream'}</button>}
+                {runningHere ? <button className="il-stop-btn" onClick={stop} disabled={Boolean(busy)}><Square size={18} fill="currentColor"/>{busy === 'stop' ? 'Stopping…' : 'Stop livestream'}</button> : <button className="il-start-btn" onClick={start} disabled={Boolean(startDisabledReason)}><Play size={19} fill="currentColor"/>{busy === 'start' ? 'Starting…' : runningElsewhere ? 'Another channel is live' : settings?.sourceMode === 'direct' ? 'Start Direct MP4 livestream' : 'Start Reels livestream'}</button>}
+                {!runningHere && startDisabledReason && <p className="il-start-blocker" role="status">{startDisabledReason}</p>}
+                {!runningHere && settings?.sourceMode === 'direct' && directMediaUrls.length > 0 && <p className="il-hint">Direct livestream playlist: {directMediaUrls.length} MP4 clips loaded.</p>}
                 <p className="il-control-foot"><ShieldCheck size={14}/> Your YouTube stream key stays encrypted in MySQL.</p>
                 {status?.broadcast?.url && <a className="il-broadcast-link" href={status.broadcast.url} target="_blank" rel="noreferrer"><ExternalLink size={16}/> View created YouTube live event</a>}
               </section>
