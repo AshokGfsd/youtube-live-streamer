@@ -1,7 +1,8 @@
 # StreamForge — start / stop everything from GitHub Codespaces
 
 These commands are for the **Codespaces terminal**, not Termux, Android or
-Google Cloud Shell. Use the `feature/google-cloud-free-trial` branch.
+Google Cloud Shell. Use the `feature/google-cloud-no-mysql` branch for the
+database-free setup.
 
 ## One command to start
 
@@ -13,8 +14,10 @@ bash start-all.sh
 The script runs these stages in order:
 
 1. Check Node.js, FFmpeg/FFprobe, optional MariaDB, PulseAudio, Xvfb, VNC/noVNC,
-   tmux and Chrome. **Automatically install missing Ubuntu/Debian packages**
-   using `apt-get`, then verify Node.js is version 22 or newer.
+   tmux and a runnable Chrome. **Automatically install missing Ubuntu/Debian
+   packages** using `apt-get`. If Chromium is only an Ubuntu Snap launcher,
+   install official standalone Chrome for Testing in your home directory,
+   without Snap or root. Then verify Node.js is version 22 or newer.
 2. Check `~/StreamForge-GCloud/.env` and the private VNC password.
 3. Start **MariaDB** with `sudo service mariadb start` if needed, or skip it in file mode.
 4. Start **PulseAudio**, create `sf_audio` and set `sf_audio.monitor` for capture.
@@ -34,6 +37,15 @@ manager, outbound package-mirror access and passwordless sudo (normally
 available in Codespaces). This does not install or upgrade Node.js to a
 specific major version; Node.js **22+** remains required. On a different
 Linux distro or without sudo, the script fails with an actionable error.
+
+**Ubuntu Codespaces reports “chromium-browser requires the chromium snap”?**
+The `chromium-browser` package is an unusable Snap launcher when `snapd` is
+unavailable. StreamForge now checks whether Chrome actually responds to
+`--version` and installs standalone Chrome for Testing when necessary. The
+working browser is stored under `~/.local/share/streamforge-browser/current`.
+If the browser exits immediately, read the persistent diagnostics in
+`~/StreamForge-GCloud/logs/browser.log`; the tmux pane may already be gone.
+Do not repeatedly install the Chromium Snap launcher.
 
 To inspect missing packages without installing anything:
 
@@ -98,6 +110,7 @@ pactl list short sources
 sudo service mariadb status
 tmux capture-pane -pt sf-cloud-api -S -80
 tmux capture-pane -pt sf-cloud-browser -S -80
+tail -n 80 ~/StreamForge-GCloud/logs/browser.log
 ```
 
 Codespaces can pause or stop an idle machine, even when the services are in
@@ -159,7 +172,7 @@ curl http://127.0.0.1:4000/api/instagram-live/status
 and prebuilt dashboard into the running app:
 
 ```bash
-git pull --ff-only origin feature/google-cloud-free-trial
+git pull --ff-only origin feature/google-cloud-no-mysql
 bash stop-all.sh
 bash start-all.sh
 ```

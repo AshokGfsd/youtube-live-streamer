@@ -5,6 +5,7 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$repo_dir/scripts/google-cloud-vm/browser.sh"
 app_dir="$HOME/StreamForge-GCloud"
 file_storage=false
 if [[ -f "$app_dir/.env" ]] && grep -Eq '^CHANNEL_STORAGE=file[[:space:]]*$' "$app_dir/.env"; then file_storage=true; fi
@@ -23,11 +24,8 @@ if [[ "$file_storage" == false ]]; then programs+=(mariadb-admin); fi
 for program in "${programs[@]}"; do
   command -v "$program" >/dev/null 2>&1 || fail "$program is still missing after installation."
 done
-browser=''
-for candidate in chromium google-chrome chromium-browser; do
-  if command -v "$candidate" >/dev/null 2>&1; then browser="$(command -v "$candidate")"; break; fi
-done
-[[ -n "$browser" ]] || fail 'Google Chrome or Chromium is required.'
+browser="$(streamforge_browser_path)" || fail 'A working Chrome browser is required. Run: bash scripts/google-cloud-vm/install-browser.sh'
+echo "Browser selected: $browser"
 [[ -d /usr/share/novnc ]] || fail 'noVNC web files missing; install the novnc package.'
 (( $(node -p 'Number(process.versions.node.split(".")[0])') >= 22 )) || fail 'Node.js 22+ is required.'
 
@@ -125,7 +123,11 @@ start_session sf-cloud-window-manager 'DISPLAY=:99 openbox'
 step '7/8' 'Starting x11vnc, noVNC and Instagram Chrome...'
 start_session sf-cloud-vnc "x11vnc -display :99 -localhost -rfbport 5900 -forever -shared -rfbauth '$HOME/.vnc/passwd'"
 start_session sf-cloud-web-vnc 'websockify --web=/usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900'
-start_session sf-cloud-browser "DISPLAY=:99 '$browser' --user-data-dir='$HOME/.streamforge-cloud-chromium' --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --window-position=0,0 --window-size=540,960 --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --new-window 'https://www.instagram.com/reels/'"
+# Keep crash diagnostics even when the browser exits and tmux removes its pane.
+umask 077
+mkdir -p "$app_dir/logs"
+printf -v browser_quoted '%q' "$browser"
+start_session sf-cloud-browser "DISPLAY=:99 $browser_quoted --user-data-dir='$HOME/.streamforge-cloud-chromium' --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --window-position=0,0 --window-size=540,960 --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --new-window 'https://www.instagram.com/reels/' >> '$app_dir/logs/browser.log' 2>&1"
 
 # 8. Start the Node.js backend (including MariaDB-backed channel management).
 # Starting services is NOT starting YouTube Live: use the dashboard after login.
@@ -142,6 +144,10 @@ check_url() {
     sleep 1
   done
   echo "WARNING: $title did not become ready. Check: tmux capture-pane -pt $session -S -80" >&2
+  if [[ "$session" == sf-cloud-browser ]]; then
+    echo "Browser errors are also saved to: $app_dir/logs/browser.log" >&2
+    tail -n 25 "$app_dir/logs/browser.log" >&2 || true
+  fi
   return 1
 }
 
