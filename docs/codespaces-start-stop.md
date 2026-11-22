@@ -41,8 +41,11 @@ Linux distro or without sudo, the script fails with an actionable error.
 **Ubuntu Codespaces reports “chromium-browser requires the chromium snap”?**
 The `chromium-browser` package is an unusable Snap launcher when `snapd` is
 unavailable. StreamForge now checks whether Chrome actually responds to
-`--version` and installs standalone Chrome for Testing when necessary. The
-working browser is stored under `~/.local/share/streamforge-browser/current`.
+`--version` and installs standalone Chrome for Testing when necessary. If the
+downloaded Chrome reports missing libraries, the Codespaces installer checks
+`ldd` and installs the browser's official `deb.deps` requirements using
+`apt-get satisfy` (requires passwordless sudo). The working browser is stored
+under `~/.local/share/streamforge-browser/current`.
 If the browser exits immediately, read the persistent diagnostics in
 `~/StreamForge-GCloud/logs/browser.log`; the tmux pane may already be gone.
 Do not repeatedly install the Chromium Snap launcher.

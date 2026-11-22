@@ -96,7 +96,7 @@ fi
 
 if [[ "$needs_standalone_browser" == true ]]; then
   echo 'Installing official Chrome for Testing without Snap or root...'
-  bash "$repo_dir/scripts/google-cloud-vm/install-browser.sh" || {
+  STREAMFORGE_INSTALL_SYSTEM_CHROME_DEPS=true bash "$repo_dir/scripts/google-cloud-vm/install-browser.sh" || {
     echo 'ERROR: Chrome for Testing could not be installed. Check download access and shared libraries.' >&2
     exit 1
   }

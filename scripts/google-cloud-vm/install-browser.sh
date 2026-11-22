@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Install Google's official Chrome for Testing to the user's home (no snap/root).
+# Install Google's official Chrome for Testing to the user's home (no Snap).
 # Useful for Ubuntu Cloud Shell test sessions; a persistent VM is still required
 # for continuous streaming.
+# Codespaces may opt in to system library installation with
+# STREAMFORGE_INSTALL_SYSTEM_CHROME_DEPS=true (requires passwordless sudo).
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -59,11 +61,61 @@ if [[ ! -x "$target_dir/chrome-$platform/chrome" ]]; then
 fi
 
 ln -sfnT "$version/chrome-$platform/chrome" "$browser_root/current"
-if ! streamforge_browser_path >/dev/null; then
-  echo 'Chrome was downloaded, but cannot execute. Check for missing system libraries.' >&2
+
+browser_path="$browser_root/current"
+browser_error=''
+if ! browser_version="$("$browser_path" --version 2>&1)"; then
+  browser_error="$browser_version"
+fi
+
+if [[ -n "$browser_error" ]] && [[ "${STREAMFORGE_INSTALL_SYSTEM_CHROME_DEPS:-false}" == true ]]; then
+  # Chrome for Testing ships its official Debian package dependencies in
+  # chrome-linux64/deb.deps. Do not guess Ubuntu's renamed library packages.
+  # Install them only when ldd confirms a missing shared library.
+  missing_libraries=''
+  if command -v ldd >/dev/null 2>&1; then
+    missing_libraries="$(ldd "$browser_path" 2>&1 | grep 'not found' || true)"
+  fi
+  if [[ -n "$missing_libraries" ]]; then
+    deps_file="$target_dir/chrome-$platform/deb.deps"
+    if [[ ! -s "$deps_file" ]]; then
+      echo 'Chrome has missing shared libraries but its official deb.deps file is unavailable.' >&2
+      printf '%s\n' "$missing_libraries" >&2
+      exit 1
+    fi
+    if ! command -v apt-get >/dev/null 2>&1; then
+      echo 'Chrome dependencies require apt-get on Debian/Ubuntu.' >&2
+      exit 1
+    fi
+    run_as_root() {
+      if (( EUID == 0 )); then "$@"; else sudo -n "$@"; fi
+    }
+    if (( EUID != 0 )) &&
+       { ! command -v sudo >/dev/null 2>&1 || ! sudo -n true >/dev/null 2>&1; }; then
+      echo 'Missing Chrome shared libraries require passwordless sudo in Codespaces.' >&2
+      printf '%s\n' "$missing_libraries" >&2
+      exit 1
+    fi
+    echo 'Installing Chrome for Testing system dependencies using its official deb.deps list...'
+    run_as_root apt-get update
+    while IFS= read -r requirement || [[ -n "$requirement" ]]; do
+      [[ -n "$requirement" && "$requirement" != \#* ]] || continue
+      run_as_root apt-get satisfy -y --no-install-recommends "$requirement"
+    done < "$deps_file"
+  fi
+fi
+
+if ! browser_version="$("$browser_path" --version 2>&1)" ||
+   [[ "$browser_version" != *Chrome* && "$browser_version" != *Chromium* ]]; then
+  echo 'Chrome was downloaded but could not run. Browser error:' >&2
+  printf '%s\n' "$browser_version" >&2
+  if command -v ldd >/dev/null 2>&1; then
+    echo 'Missing shared libraries (if any):' >&2
+    ldd "$browser_path" 2>&1 | grep 'not found' >&2 || true
+  fi
   exit 1
 fi
 
-echo "READY: $("$browser_root/current" --version)"
-echo "Browser path: $browser_root/current"
+echo "READY: $browser_version"
+echo "Browser path: $browser_path"
 echo 'Cloud Shell sessions expire; for persistent livestreaming, use a Compute Engine VM.'
