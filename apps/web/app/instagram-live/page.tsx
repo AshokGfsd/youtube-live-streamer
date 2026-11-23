@@ -77,6 +77,8 @@ export default function InstagramLivePage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [advanced, setAdvanced] = useState(false);
+  const [queueFilter, setQueueFilter] = useState<'all' | 'played' | 'current' | 'upcoming'>('all');
+  const [queueSearch, setQueueSearch] = useState('');
   const pendingDirectMode = useRef<boolean | null>(null);
 
   const request = useCallback(async <T,>(url: string, init: RequestInit = {}): Promise<T> => {
@@ -417,23 +419,173 @@ export default function InstagramLivePage() {
                   </div>
                 </div>
               </section>
-              {runningDirect && <section className="il-panel il-live-queue" id="il-live-queue" aria-label="Live video switcher">
-                <div className="il-panel-head"><div className="il-panel-icon il-purple"><ListVideo size={19}/></div><div><p>Playback controls</p><h2>Choose the next video</h2><span>Restart from any clip in your active playlist.</span></div></div>
-                <p className="il-hint">Direct FFmpeg uses a fixed playlist. Every switch briefly reconnects to YouTube; the existing live event remains, but viewers may see buffering. The selected index is the <b>restart point</b>, not a real-time playhead.</p>
-                <div className="il-live-queue-summary"><span>{activeCount} videos in active playlist</span><span>Last restart: #{(status?.directControl?.lastSelectedIndex ?? 0) + 1}</span></div>
-                <div className="il-live-video-grid">{Array.from({ length: activeCount }, (_, index) => <button type="button" key={index}
-                  className={status?.directControl?.lastSelectedIndex === index ? 'il-live-video-current' : ''}
-                  disabled={Boolean(busy) || Boolean(status?.starting) || !rights}
-                  title={`Restart streaming from video ${index + 1}`} onClick={() => void switchDirectVideo(index)}>
-                  <Play size={13}/> Video {index + 1}
-                </button>)}</div>
-                <button type="button" className="il-secondary-btn il-live-next" disabled={!activeCount || Boolean(busy) || !rights}
-                  onClick={() => void switchDirectVideo(((status?.directControl?.lastSelectedIndex ?? 0) + 1) % activeCount)}><RefreshCw size={15}/> Next from last selected video</button>
-                <div className="il-live-replace"><b>Ready for a new topic?</b><p>Find videos in the next panel, then apply your new list. The current videos keep playing until you confirm.</p>
-                  <button type="button" className="il-start-btn" disabled={!directMediaUrls.length || Boolean(busy) || Boolean(status?.starting) || !rights}
-                    onClick={() => void switchDirectVideo(0, true)}>{busy === 'switch' ? <LoaderCircle size={17} className="il-spin"/> : <RefreshCw size={17}/>} Replace live playlist ({directMediaUrls.length} videos)</button>
-                </div>
-              </section>}
+              {runningDirect && (() => {
+                const currentPlayingIndex = status?.directControl?.lastSelectedIndex ?? 0;
+                const visibleIndices = Array.from({ length: activeCount }, (_, i) => i).filter((idx) => {
+                  if (queueSearch.trim()) {
+                    const q = queueSearch.trim().toLowerCase().replace(/^#|^video\s*/i, '');
+                    if (q && !String(idx + 1).includes(q)) return false;
+                  }
+                  if (queueFilter === 'played') return idx < currentPlayingIndex;
+                  if (queueFilter === 'current') return idx === currentPlayingIndex;
+                  if (queueFilter === 'upcoming') return idx > currentPlayingIndex;
+                  return true;
+                });
+
+                return (
+                  <section className="il-panel il-live-queue" id="il-live-queue" aria-label="Live video switcher">
+                    <div className="il-panel-head">
+                      <div className="il-panel-icon il-purple"><ListVideo size={19}/></div>
+                      <div>
+                        <p>Playback controls</p>
+                        <h2>Live video switcher</h2>
+                        <span>Monitor and control which clip is playing live.</span>
+                      </div>
+                    </div>
+
+                    <div className="il-now-playing-banner">
+                      <div className="il-now-playing-info">
+                        <span className="il-live-dot" />
+                        <div>
+                          <span className="il-now-playing-label">CURRENTLY PLAYING</span>
+                          <b className="il-now-playing-title">Video #{currentPlayingIndex + 1} of {activeCount}</b>
+                        </div>
+                      </div>
+                      <div className="il-now-playing-meta">
+                        <span className="il-badge-played">✓ {currentPlayingIndex} Played</span>
+                        <span className="il-badge-upcoming">▷ {Math.max(0, activeCount - currentPlayingIndex - 1)} Upcoming</span>
+                        <button
+                          type="button"
+                          className="il-jump-current-btn"
+                          onClick={() => {
+                            setQueueFilter('all');
+                            setQueueSearch('');
+                            setTimeout(() => {
+                              const el = document.getElementById(`il-video-btn-${currentPlayingIndex}`);
+                              el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }, 50);
+                          }}
+                        >
+                          Scroll to Playing
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="il-queue-filter-row">
+                      <div className="il-queue-tabs">
+                        <button
+                          type="button"
+                          className={queueFilter === 'all' ? 'il-qtab-active' : ''}
+                          onClick={() => setQueueFilter('all')}
+                        >
+                          All ({activeCount})
+                        </button>
+                        <button
+                          type="button"
+                          className={queueFilter === 'played' ? 'il-qtab-active' : ''}
+                          onClick={() => setQueueFilter('played')}
+                        >
+                          ✓ Played ({currentPlayingIndex})
+                        </button>
+                        <button
+                          type="button"
+                          className={queueFilter === 'current' ? 'il-qtab-active' : ''}
+                          onClick={() => setQueueFilter('current')}
+                        >
+                          ▶ Playing (#{currentPlayingIndex + 1})
+                        </button>
+                        <button
+                          type="button"
+                          className={queueFilter === 'upcoming' ? 'il-qtab-active' : ''}
+                          onClick={() => setQueueFilter('upcoming')}
+                        >
+                          Up Next ({Math.max(0, activeCount - currentPlayingIndex - 1)})
+                        </button>
+                      </div>
+                      <div className="il-queue-search">
+                        <Search size={13} />
+                        <input
+                          type="text"
+                          placeholder="Filter # (e.g. 24)"
+                          value={queueSearch}
+                          onChange={(e) => setQueueSearch(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="il-live-video-grid">
+                      {visibleIndices.length > 0 ? (
+                        visibleIndices.map((index) => {
+                          const isCurrent = status?.directControl?.lastSelectedIndex === index;
+                          const isPlayed = index < currentPlayingIndex;
+                          return (
+                            <button
+                              type="button"
+                              id={`il-video-btn-${index}`}
+                              key={index}
+                              className={
+                                isCurrent
+                                  ? 'il-live-video-current'
+                                  : isPlayed
+                                    ? 'il-live-video-played'
+                                    : 'il-live-video-upcoming'
+                              }
+                              disabled={Boolean(busy) || Boolean(status?.starting) || !rights}
+                              title={
+                                isCurrent
+                                  ? `Video ${index + 1} (Currently playing)`
+                                  : isPlayed
+                                    ? `Video ${index + 1} (Already played) - Click to restart here`
+                                    : `Video ${index + 1} (Upcoming) - Click to restart here`
+                              }
+                              onClick={() => void switchDirectVideo(index)}
+                            >
+                              <span className="il-video-btn-main">
+                                {isCurrent ? (
+                                  <Play size={12} fill="currentColor" />
+                                ) : isPlayed ? (
+                                  <Check size={12} strokeWidth={3} className="il-check-icon" />
+                                ) : (
+                                  <Play size={12} />
+                                )}
+                                Video {index + 1}
+                              </span>
+                              <span className="il-video-status-tag">
+                                {isCurrent ? 'Playing' : isPlayed ? 'Played' : 'Up Next'}
+                              </span>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <p className="il-hint" style={{ gridColumn: '1/-1', textAlign: 'center', padding: '16px 0' }}>
+                          No videos match the selected filter.
+                        </p>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="il-secondary-btn il-live-next"
+                      disabled={!activeCount || Boolean(busy) || !rights}
+                      onClick={() => void switchDirectVideo(((status?.directControl?.lastSelectedIndex ?? 0) + 1) % activeCount)}
+                    >
+                      <RefreshCw size={15}/> Next from last selected video
+                    </button>
+                    <div className="il-live-replace">
+                      <b>Ready for a new topic?</b>
+                      <p>Find videos in the next panel, then apply your new list. The current videos keep playing until you confirm.</p>
+                      <button
+                        type="button"
+                        className="il-start-btn"
+                        disabled={!directMediaUrls.length || Boolean(busy) || Boolean(status?.starting) || !rights}
+                        onClick={() => void switchDirectVideo(0, true)}
+                      >
+                        {busy === 'switch' ? <LoaderCircle size={17} className="il-spin"/> : <RefreshCw size={17}/>} Replace live playlist ({directMediaUrls.length} videos)
+                      </button>
+                    </div>
+                  </section>
+                );
+              })()}
               <MediaProbePanel key={selectedId} request={request} onMediaUrlsChange={setDirectMediaUrls}
                 directActive={settings?.sourceMode === 'direct'} onDirectActiveChange={changeDirectMode}
                 liveLocked={(runningHere && !runningDirect) || Boolean(status?.starting)} liveDirect={runningDirect}
