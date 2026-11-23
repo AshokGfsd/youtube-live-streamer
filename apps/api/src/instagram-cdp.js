@@ -1,6 +1,73 @@
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { installReelsWatcher } from './instagram-reels-watcher.js';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export function getChromeExecutable() {
+  if (process.env.STREAMFORGE_CHROME_BIN && existsSync(process.env.STREAMFORGE_CHROME_BIN)) {
+    return process.env.STREAMFORGE_CHROME_BIN;
+  }
+  if (process.platform === 'win32') {
+    const candidates = [
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Google\\Chrome\\Application\\chrome.exe'),
+      path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Google\\Chrome\\Application\\chrome.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
+    ];
+    for (const candidate of candidates) {
+      if (candidate && existsSync(candidate)) return candidate;
+    }
+  } else {
+    const candidates = ['/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium'];
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+export async function isDebuggerListening(port = 9222) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function launchPrivateChrome(port = 9222, url = 'https://www.instagram.com/reels/') {
+  if (await isDebuggerListening(port)) return true;
+  const chromeBin = getChromeExecutable();
+  if (!chromeBin) return false;
+
+  const profileDir = path.join(os.homedir(), 'streamforge-browser-profile');
+  const args = [
+    `--user-data-dir=${profileDir}`,
+    '--remote-debugging-address=127.0.0.1',
+    `--remote-debugging-port=${port}`,
+    '--remote-allow-origins=*',
+    '--window-position=0,0',
+    '--window-size=540,960',
+    '--no-first-run',
+    '--no-default-browser-check',
+    url,
+  ];
+
+  try {
+    const child = spawn(chromeBin, args, { detached: true, stdio: 'ignore' });
+    child.unref();
+  } catch {
+    return false;
+  }
+
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    if (await isDebuggerListening(port)) return true;
+  }
+  return false;
+}
 
 export class InstagramBrowserError extends Error {
   constructor(message, status = 503) {
@@ -30,7 +97,15 @@ export async function findInstagramTab(port = 9222) {
   }
   let tabs;
   try { tabs = await tabList(port); }
-  catch { throw new InstagramBrowserError('Start your private Instagram Chrome with --remote-debugging-port=9222 before starting the live feed'); }
+  catch {
+    const launched = await launchPrivateChrome(port).catch(() => false);
+    if (launched) {
+      try { tabs = await tabList(port); } catch { /* ignore */ }
+    }
+    if (!tabs) {
+      throw new InstagramBrowserError('Start your private Instagram Chrome with --remote-debugging-port=9222 before starting the live feed');
+    }
+  }
   const tab = tabs.find((candidate) => candidate.type === 'page' &&
     isReelsUrl(candidate.url) && candidate.webSocketDebuggerUrl);
   if (!tab) throw new InstagramBrowserError('Open Instagram Reels in your private Chrome window and sign in manually first');

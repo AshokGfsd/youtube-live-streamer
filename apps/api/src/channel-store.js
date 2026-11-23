@@ -214,7 +214,7 @@ export class ChannelStore {
 export async function resolveChannelEncryptionKey(env = process.env) {
   const provided = String(env.CHANNEL_ENCRYPTION_KEY || '').trim();
   if (provided && provided !== 'YOUR_GENERATED_64_CHARACTER_KEY') return provided;
-  if (env.LOCAL_ONLY_MODE !== 'true') return provided;
+  if (env.LOCAL_ONLY_MODE !== 'true' && env.CHANNEL_STORAGE !== 'file') return provided;
 
   const directory = path.resolve(env.DATA_DIR || './data');
   const filename = path.join(directory, 'channel-encryption.key');

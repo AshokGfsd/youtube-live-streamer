@@ -23,7 +23,7 @@ test('API health works but control endpoints require the owner token', async () 
   const port = 42000 + Math.floor(Math.random() * 12000);
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: path.resolve(import.meta.dirname, '..'),
-    env: { ...process.env, PORT: String(port), DASHBOARD_TOKEN: token, YOUTUBE_STREAM_KEY: '', DATA_DIR: dir, WEB_STATIC_DIR: staticDir, LISTEN_HOST: '127.0.0.1', FRONTEND_ORIGIN: 'http://localhost:3000' },
+    env: { ...process.env, PORT: String(port), DASHBOARD_TOKEN: token, YOUTUBE_STREAM_KEY: '', DATA_DIR: dir, WEB_STATIC_DIR: staticDir, LISTEN_HOST: '127.0.0.1', FRONTEND_ORIGIN: 'http://localhost:3000', LOCAL_ONLY_MODE: 'false', CHANNEL_STORAGE: 'mysql' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const address = 'http://127.0.0.1:' + port;

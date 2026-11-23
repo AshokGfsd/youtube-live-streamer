@@ -14,6 +14,7 @@ execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', [
 ], {
   cwd: root,
   stdio: 'inherit',
+  shell: process.platform === 'win32',
   env: { ...process.env, STREAMFORGE_STATIC_EXPORT: '1', NEXT_PUBLIC_API_BASE_URL: '' },
 });
 

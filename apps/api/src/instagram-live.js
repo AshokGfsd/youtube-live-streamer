@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ChannelError } from './channel-store.js';
-import { InstagramReelsController, findInstagramTab } from './instagram-cdp.js';
+import { InstagramReelsController, findInstagramTab, launchPrivateChrome } from './instagram-cdp.js';
 import { FileInstagramPlaylistStore, InstagramPlaylistStore, normalizeReelUrl } from './instagram-playlist.js';
 import { InstagramMediaProber } from './instagram-media-probe.js';
 import { InstagramMediaCollector } from './instagram-media-collector.js';
@@ -81,7 +81,7 @@ export function reelCaptureCrop(rect, { captureWidth, captureHeight }, viewport 
   return { x: left, y: top, width, height };
 }
 
-export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display = ':1', videoRect = null, viewport = null) {
+export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display = ':1', videoRect = null, viewport = null, options = {}) {
   const config = validateInstagramSettings(settings);
   const phoneFrame = config.mobileLayout && config.frame === 'iphone';
   const crop = phoneFrame ? reelCaptureCrop(videoRect, config, viewport) : null;
@@ -90,10 +90,18 @@ export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display
   const outputFilter = `scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=decrease:flags=lanczos,` +
     `pad=${outputWidth}:${outputHeight}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p`;
   // Ingest URL and stream key have already been validated by ChannelStore.
+  const isWindows = options.platform ? options.platform === 'win32' : (process.platform === 'win32' && !display?.startsWith(':'));
+  const inputArgs = isWindows
+    ? ['-f', 'gdigrab', '-draw_mouse', '0', '-framerate', String(config.fps),
+       '-video_size', `${config.captureWidth}x${config.captureHeight}`,
+       '-offset_x', String(config.captureX), '-offset_y', String(config.captureY),
+       '-i', 'desktop']
+    : ['-f', 'x11grab', '-draw_mouse', '0', '-framerate', String(config.fps),
+       '-video_size', `${config.captureWidth}x${config.captureHeight}`,
+       '-i', `${display}.0+${config.captureX},${config.captureY}`];
   const args = ['-hide_banner', '-nostdin', '-loglevel', 'warning',
-    '-thread_queue_size', '512', '-f', 'x11grab', '-draw_mouse', '0',
-    '-framerate', String(config.fps), '-video_size', `${config.captureWidth}x${config.captureHeight}`,
-    '-i', `${display}.0+${config.captureX},${config.captureY}`,
+    '-thread_queue_size', '512',
+    ...inputArgs,
     '-thread_queue_size', '512'];
   if (config.audio === 'pulse') args.push('-f', 's16le', '-ar', '44100', '-ac', '2', '-i', 'pipe:0');
   else args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
@@ -204,7 +212,7 @@ export class InstagramLiveManager {
 
   getStatus() {
     return { running: Boolean(this.process), starting: this.starting, sourceMode: this.sourceMode,
-      platform: this.isTermux ? 'termux' : 'desktop',
+      platform: this.isTermux ? 'termux' : (process.platform === 'win32' ? 'windows' : 'desktop'),
       capabilities: { browserCapture: !this.isTermux, browserCollector: !this.isTermux, directMedia: true },
       outputResolution: this.outputResolution,
       activeChannelId: this.activeChannelId, startedAt: this.startedAt,
@@ -291,10 +299,14 @@ export class InstagramLiveManager {
         await writeFile(manifest, directMediaManifest(directUrls), { mode: 0o600, flag: 'wx' });
         args = buildDirectMediaFfmpegArgs(settings, channel.ingestUrl, key, manifest, IPHONE_FRAME);
       } else {
+        const defaultDisplay = process.platform === 'win32' ? 'desktop' : ':1';
         args = buildInstagramFfmpegArgs(settings, channel.ingestUrl, key,
-          this.env.INSTAGRAM_DISPLAY || ':1', browserState?.videoRect, browserState);
+          this.env.INSTAGRAM_DISPLAY || defaultDisplay, browserState?.videoRect, browserState);
       }
       if (!directUrls.length && settings.audio === 'pulse') {
+        if (process.platform === 'win32') {
+          throw new ChannelError('PulseAudio monitor is not available on Windows. Select "silent" audio or use Direct MP4 playlist mode.');
+        }
         this.audioProcess = this.spawnProcess('parec', ['--device=@DEFAULT_MONITOR@', '--format=s16le', '--rate=44100', '--channels=2'],
           { stdio: ['ignore', 'pipe', 'pipe'] });
         this.audioProcess.once('error', (error) => this.fail('PulseAudio monitor not available: ' + error.message));
@@ -485,6 +497,13 @@ export function registerInstagramLiveRoutes(app, { manager, localOnly }) {
   app.use('/api/instagram-live', ensureReady);
   app.get('/api/instagram-live/status', (_req, res) => res.json(manager.getStatus()));
   app.get('/api/instagram-live/browser', async (_req, res) => res.json(await manager.browserStatus()));
+  app.post('/api/instagram-live/browser/launch', async (_req, res, next) => {
+    try {
+      const port = Number(manager.env.INSTAGRAM_CDP_PORT || 9222);
+      const launched = await launchPrivateChrome(port);
+      res.json({ ok: launched, message: launched ? `Chrome launched on port ${port}` : 'Could not launch Chrome automatically' });
+    } catch (error) { next(error); }
+  });
   app.get('/api/instagram-live/browser/current', async (_req, res) => res.json(await manager.currentReel()));
   app.post('/api/instagram-live/media/probe', async (req, res) => res.json(
     await manager.mediaProber.probe(req.body?.url, { decode: req.body?.decode ?? false })

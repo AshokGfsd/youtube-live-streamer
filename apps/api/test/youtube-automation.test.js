@@ -65,7 +65,8 @@ test('Google OAuth connects the channel and creates a YouTube live with a thumbn
     const stored = JSON.parse(await fs.readFile(path.join(dir, 'youtube-oauth.json'), 'utf8'));
     assert.equal(stored.refreshToken, 'refresh-secret');
     const fileStat = await fs.stat(path.join(dir, 'youtube-oauth.json'));
-    assert.equal(fileStat.mode & 0o777, 0o600);
+    const expectedMode = process.platform === 'win32' ? 0o666 : 0o600;
+    assert.equal(fileStat.mode & 0o777, expectedMode);
 
     const broadcast = await service.createBroadcast({ title: ' My first live ', description: 'Hello!', privacy: 'unlisted' }, image);
     assert.deepEqual(broadcast, {

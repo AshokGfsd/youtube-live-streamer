@@ -27,6 +27,7 @@ the configured channel store (encrypted local files on Termux by default,
 or optional MySQL), keeping draft progress when you close or reload. YouTube
 stream keys and OAuth refresh tokens are encrypted with AES-256-GCM at rest.
 
+- **Windows (native):** run `start-windows.bat` or `npm run start:windows` for instant setup with local encrypted file storage (`CHANNEL_STORAGE=file`), native FFmpeg encoding, and Windows GDI desktop grab support. See the [Windows Guide](docs/windows-setup.md).
 - **Android/Termux:** set `CHANNEL_STORAGE=file` and `MULTI_CHANNEL_ENABLED=false`
   in your local `.env`, then run `bash start-android.sh`. No MySQL, Chrome or X11
   is needed for Direct MP4 livestreams. See the [Termux guide](deploy/termux/README-ANDROID.md).
@@ -45,6 +46,21 @@ stream keys and OAuth refresh tokens are encrypted with AES-256-GCM at rest.
 Never commit your database password, encryption key, OAuth client secret or
 YouTube stream keys. A database backup **without** your original encryption key
 cannot restore the saved secret values.
+
+## Windows 10 & 11 (Native 1-Click Launch)
+
+Run StreamForge directly on your Windows PC with native FFmpeg encoding, hardware acceleration, and encrypted local storage (no MySQL or Docker required):
+
+```powershell
+# 1. Install prerequisites (if not already installed)
+winget install OpenJS.NodeJS.LTS
+winget install Gyan.FFmpeg
+
+# 2. Start StreamForge Studio
+.\start-windows.ps1   # or double-click start-windows.bat, or npm run start:windows
+```
+
+The unified dashboard opens automatically at `http://127.0.0.1:4000` without any login token needed. To stop the studio anytime, double-click `stop-windows.bat` or run `npm run stop:windows`. For Instagram Reels live capture on Windows, run `npm run launch:reels:windows`. See the [Windows Setup Guide](docs/windows-setup.md).
 
 ## Android phone (no credit card / cloud VM required)
 

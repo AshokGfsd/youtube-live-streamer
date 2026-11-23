@@ -87,7 +87,8 @@ test('direct media mode uses no browser, keeps URL secrets private and removes m
   const manifestPath = args[args.indexOf('-f') + 3];
   const manifest = await readFile(manifestPath, 'utf8');
   assert.match(manifest, /FIRST_PRIVATE_TOKEN/);
-  assert.equal((await stat(manifestPath)).mode & 0o777, 0o600);
+  const expectedMode = process.platform === 'win32' ? 0o666 : 0o600;
+  assert.equal((await stat(manifestPath)).mode & 0o777, expectedMode);
   await manager.stop();
   await assert.rejects(() => stat(manifestPath), { code: 'ENOENT' });
 });

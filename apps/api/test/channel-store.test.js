@@ -14,7 +14,8 @@ test('private Android server creates and reuses an encryption key without login 
     const key = await resolveChannelEncryptionKey(env);
     assert.match(key, /^[a-f0-9]{64}$/);
     assert.equal(await resolveChannelEncryptionKey({ ...env, CHANNEL_ENCRYPTION_KEY: '' }), key);
-    assert.equal((await fs.stat(path.join(dir, 'channel-encryption.key'))).mode & 0o777, 0o600);
+    const expectedMode = process.platform === 'win32' ? 0o666 : 0o600;
+    assert.equal((await fs.stat(path.join(dir, 'channel-encryption.key'))).mode & 0o777, expectedMode);
     assert.equal(await resolveChannelEncryptionKey({ ...env, CHANNEL_ENCRYPTION_KEY: KEY }), KEY);
     assert.equal(await resolveChannelEncryptionKey({ LOCAL_ONLY_MODE: 'false' }), '');
   } finally { await fs.rm(dir, { recursive: true, force: true }); }

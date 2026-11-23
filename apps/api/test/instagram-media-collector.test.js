@@ -5,11 +5,13 @@ import { InstagramMediaCollector, READ_VISIBLE_MEDIA, validateMediaSearch } from
 const CLIP1 = 'https://instagram.a.fbcdn.net/o1/v/clip-one.mp4?token=FIRST_SECRET';
 const CLIP2 = 'https://instagram.a.fbcdn.net/o1/v/clip-two.mp4?token=SECOND_SECRET';
 
-test('automatic search only accepts bounded keywords and a 1–100 count', () => {
+test('automatic search only accepts bounded keywords and a valid count', () => {
   assert.deepEqual(validateMediaSearch({ query: ' Naruto ', count: 10 }), { query: 'Naruto', count: 10 });
+  assert.deepEqual(validateMediaSearch({ query: ' Naruto ', count: 200 }), { query: 'Naruto', count: 200 });
+  assert.deepEqual(validateMediaSearch({ query: ' Naruto ', count: 0 }), { query: 'Naruto', count: 0 });
   for (const input of [
-    { query: 'x', count: 2 }, { query: 'naruto', count: 0 },
-    { query: 'naruto', count: 101 }, { query: 'naruto', count: 1.2 },
+    { query: 'x', count: 2 }, { query: 'naruto', count: -1 },
+    { query: 'naruto', count: 50001 }, { query: 'naruto', count: 1.2 },
     { query: 'naruto\nignore', count: 3 },
   ]) assert.throws(() => validateMediaSearch(input), /keyword|count/);
 });

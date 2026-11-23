@@ -29,7 +29,10 @@ function withFakeBrowsers(t, entries, command, overrides = {}) {
   });
 }
 
-test('Google VM browser selection uses an installed real Chrome instead of snap stub', (t) => {
+const isWindows = process.platform === 'win32';
+const skipWindows = isWindows ? 'Linux bash scripts are not executed on Windows' : false;
+
+test('Google VM browser selection uses an installed real Chrome instead of snap stub', { skip: skipWindows }, (t) => {
   const result = withFakeBrowsers(t, {
     'chromium-browser': 'echo "Chromium snap is not installed" >&2; exit 1',
     'google-chrome-stable': 'echo "Google Chrome 157.0.8103.50"',
@@ -39,7 +42,7 @@ test('Google VM browser selection uses an installed real Chrome instead of snap 
   assert.match(result.stdout, /\/bin\/google-chrome-stable\n$/);
 });
 
-test('Google VM browser selection rejects a snap-only launcher', (t) => {
+test('Google VM browser selection rejects a snap-only launcher', { skip: skipWindows }, (t) => {
   const result = withFakeBrowsers(t, {
     'chromium-browser': 'echo "Command requires the chromium snap" >&2; exit 1',
   }, 'streamforge_browser_path');
@@ -48,7 +51,7 @@ test('Google VM browser selection rejects a snap-only launcher', (t) => {
   assert.equal(result.stdout, '');
 });
 
-test('Google VM browser selection accepts a valid custom binary', (t) => {
+test('Google VM browser selection accepts a valid custom binary', { skip: skipWindows }, (t) => {
   const result = withFakeBrowsers(t, {
     'custom-chrome': 'echo "Google Chrome for Testing 157.0.8103.50"',
   }, 'streamforge_browser_path', ({ bin }) => ({ STREAMFORGE_BROWSER_BIN: join(bin, 'custom-chrome') }));
@@ -75,7 +78,7 @@ function codespacesDryRunWithBrowsers(t, browsers) {
   });
 }
 
-test('Codespaces dry run detects snap-only Chromium and selects standalone Chrome install', (t) => {
+test('Codespaces dry run detects snap-only Chromium and selects standalone Chrome install', { skip: skipWindows }, (t) => {
   const result = codespacesDryRunWithBrowsers(t, {
     'chromium-browser': 'echo "Command requires the chromium snap" >&2; exit 1',
   });
@@ -85,7 +88,7 @@ test('Codespaces dry run detects snap-only Chromium and selects standalone Chrom
   assert.match(result.stdout, /nothing was installed/);
 });
 
-test('Codespaces dry run accepts a real Chromium executable', (t) => {
+test('Codespaces dry run accepts a real Chromium executable', { skip: skipWindows }, (t) => {
   const result = codespacesDryRunWithBrowsers(t, {
     chromium: 'echo "Chromium 157.0.8103.50"',
   });
@@ -93,7 +96,7 @@ test('Codespaces dry run accepts a real Chromium executable', (t) => {
   assert.doesNotMatch(result.stdout, /standalone Chrome for Testing/);
 });
 
-test('Codespaces Chrome installer installs official deb.deps when shared libraries are missing', (t) => {
+test('Codespaces Chrome installer installs official deb.deps when shared libraries are missing', { skip: skipWindows }, (t) => {
   const home = mkdtempSync(join(tmpdir(), 'streamforge-chrome-deps-test-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const bin = join(home, 'bin');

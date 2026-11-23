@@ -11,6 +11,11 @@
     "build:android": "node scripts/build-android-kit.mjs",
     "prototype:reels:demo": "node scripts/instagram-reels-prototype.mjs --demo",
     "prototype:reels:instagram": "node scripts/instagram-reels-prototype.mjs --instagram",
-    "test": "npm run test --workspace @streamforge/api"
+    "test": "npm run test --workspace @streamforge/api",
+    "start:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows/start.ps1",
+    "start:windows:cmd": "start-windows.bat",
+    "stop:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows/stop.ps1",
+    "launch:reels:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows/launch-chrome-reels.ps1",
+    "deps:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows/install-deps.ps1"
   }
 }

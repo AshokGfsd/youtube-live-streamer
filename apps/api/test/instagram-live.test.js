@@ -92,7 +92,7 @@ test('phone compositing crops only the playing Reel and preserves audio input', 
   assert.ok(args.includes('pipe:0'));
   assert.ok(args.includes('-filter_complex'));
   assert.ok(args.includes('-loop'));
-  assert.ok(args.some((arg) => arg.endsWith('/assets/iphone-frame.svg')));
+  assert.ok(args.some((arg) => arg.endsWith('/assets/iphone-frame.svg') || arg.endsWith('\\assets\\iphone-frame.svg')));
   assert.match(args[args.indexOf('-filter_complex') + 1], /crop=222:398:32:16/);
   assert.match(args[args.indexOf('-filter_complex') + 1], /pad=540:960:46:82/);
   assert.equal(args[args.indexOf('-map') + 1], '[composed]');
@@ -195,4 +195,30 @@ test('selected Reels mode sends saved URLs in order and reports playlist positio
   assert.equal(manager.getStatus().playlist, null);
   manager.playlist.list = async () => [];
   await assert.rejects(() => manager.start('channel', true), /empty/);
+});
+
+test('Windows gdigrab screen capture is supported when display is desktop', () => {
+  const args = buildInstagramFfmpegArgs({ captureWidth: 540, captureHeight: 960, fps: 15, audio: 'silent', frame: 'none' },
+    'rtmps://a.rtmps.youtube.com/live2', 'test-stream-key', 'desktop', null, null, { platform: 'win32' });
+  assert.ok(args.includes('gdigrab'));
+  assert.ok(args.includes('desktop'));
+  assert.equal(args[args.indexOf('-offset_x') + 1], '0');
+  assert.equal(args[args.indexOf('-offset_y') + 1], '0');
+  assert.equal(args.at(-1), 'rtmps://a.rtmps.youtube.com/live2/test-stream-key');
+});
+
+test('rejects PulseAudio on Windows when starting browser live', async () => {
+  if (process.platform !== 'win32') return;
+  const manager = new InstagramLiveManager({
+    env: { STREAMFORGE_PLATFORM: 'desktop' },
+    store: {
+      getPublic: async () => ({ defaultTitle: 'Win live', defaultDescription: '', privacy: 'private', ingestUrl: 'rtmps://a.rtmps.youtube.com/live2' }),
+      getInstagramSettings: async () => ({ sourceMode: 'browser', audio: 'pulse', mobileLayout: false, frame: 'none', playlistMode: 'feed' }),
+      get: async () => ({ completedAt: new Date(), streamKeySecret: 'encrypted', ingestUrl: 'rtmps://a.rtmps.youtube.com/live2' }),
+      getStreamKey: async () => 'key-123',
+    },
+    studio: { runningCount: () => 0, maxStreams: 1 },
+    makeController: () => ({ connect: async () => ({ videoRect: { x: 0, y: 0, width: 360, height: 640 } }), stop: async () => {} }),
+  });
+  await assert.rejects(() => manager.start('win-channel', true), /PulseAudio monitor is not available on Windows/);
 });

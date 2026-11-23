@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import crypto from 'node:crypto';
@@ -263,9 +264,18 @@ app.post('/api/stop', async (_req, res, next) => {
 
 // Optional prebuilt frontend for Termux: one local HTTP origin, no Next.js build on Android.
 if (env.WEB_STATIC_DIR) {
-  const staticDir = path.resolve(env.WEB_STATIC_DIR);
+  let staticDir = path.resolve(env.WEB_STATIC_DIR);
   if (!existsSync(path.join(staticDir, 'index.html'))) {
-    throw new Error('WEB_STATIC_DIR must contain a prebuilt index.html');
+    const dir = import.meta.dirname || path.dirname(fileURLToPath(import.meta.url));
+    const relativeToApp = path.resolve(dir, '..', env.WEB_STATIC_DIR);
+    const fromRepoRoot = path.resolve(dir, '../../../deploy/termux/public');
+    if (existsSync(path.join(relativeToApp, 'index.html'))) {
+      staticDir = relativeToApp;
+    } else if (existsSync(path.join(fromRepoRoot, 'index.html'))) {
+      staticDir = fromRepoRoot;
+    } else {
+      throw new Error('WEB_STATIC_DIR must contain a prebuilt index.html');
+    }
   }
   // Next.js static export writes "instagram-live.html" plus an
   // "instagram-live/" folder for React Server Component payloads. Express's

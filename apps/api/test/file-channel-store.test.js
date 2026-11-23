@@ -31,7 +31,8 @@ test('file-backed channels work without MySQL and persist only encrypted secrets
     const savedFile = path.join(dataDir, 'channels.json');
     const contents = await fs.readFile(savedFile, 'utf8');
     assert.equal(contents.includes(STREAM_KEY), false);
-    assert.equal((await fs.stat(savedFile)).mode & 0o777, 0o600);
+    const expectedMode = process.platform === 'win32' ? 0o666 : 0o600;
+    assert.equal((await fs.stat(savedFile)).mode & 0o777, expectedMode);
     const second = await createFileChannelStore(env);
     assert.equal((await second.list()).length, 1);
     assert.equal((await second.getStreamKey(draft.id)), STREAM_KEY);
