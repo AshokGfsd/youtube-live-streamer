@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +12,9 @@ import { InstagramMediaCollector } from './instagram-media-collector.js';
 import { buildDirectMediaFfmpegArgs, directMediaManifest, validateDirectMediaPlaylist } from './instagram-direct-media.js';
 import { STREAM_OUTPUT_SIZES, streamOutputDimensions } from './instagram-output-resolution.js';
 
-const IPHONE_FRAME = fileURLToPath(new URL('./assets/iphone-frame.svg', import.meta.url));
+const IPHONE_FRAME = existsSync(fileURLToPath(new URL('./assets/iphone-frame.png', import.meta.url)))
+  ? fileURLToPath(new URL('./assets/iphone-frame.png', import.meta.url))
+  : fileURLToPath(new URL('./assets/iphone-frame.svg', import.meta.url));
 
 const DEFAULTS = Object.freeze({
   title: '', description: '', privacy: 'private', scroll: 'wheel',

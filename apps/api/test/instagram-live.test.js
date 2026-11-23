@@ -92,7 +92,7 @@ test('phone compositing crops only the playing Reel and preserves audio input', 
   assert.ok(args.includes('pipe:0'));
   assert.ok(args.includes('-filter_complex'));
   assert.ok(args.includes('-loop'));
-  assert.ok(args.some((arg) => arg.endsWith('/assets/iphone-frame.svg') || arg.endsWith('\\assets\\iphone-frame.svg')));
+  assert.ok(args.some((arg) => /assets[\\\/]iphone-frame\.(svg|png)$/.test(arg)));
   assert.match(args[args.indexOf('-filter_complex') + 1], /crop=222:398:32:16/);
   assert.match(args[args.indexOf('-filter_complex') + 1], /pad=540:960:46:82/);
   assert.equal(args[args.indexOf('-map') + 1], '[composed]');
