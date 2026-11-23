@@ -285,7 +285,7 @@ export default function MediaProbePanel({
                 typeof item === "string" && item.startsWith("https://"),
             ),
         ),
-      ].slice(0, 100);
+      ].slice(0, 50000);
       if (!links.length)
         throw new Error(
           "No direct video URLs found. Export sfCollector.results() as JSON.",

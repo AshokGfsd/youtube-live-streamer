@@ -18,8 +18,8 @@ test('direct playlist accepts signed Meta MP4 URLs and rejects injection/duplica
   assert.throws(() => validateDirectMediaPlaylist([FIRST, FIRST]), /duplicate/);
   assert.throws(() => validateDirectMediaPlaylist([FIRST, 'https://evil.com/video.mp4']), /HTTPS/);
   assert.throws(() => validateDirectMediaPlaylist([FIRST, 'https://instagram.a.fbcdn.net/movie.mp4?name=bad\'quote']), /unsupported characters/);
-  assert.throws(() => validateDirectMediaPlaylist(Array.from({ length: 101 }, (_, i) =>
-    `https://instagram.a.fbcdn.net/v${i}.mp4`)), /1–100/);
+  assert.throws(() => validateDirectMediaPlaylist(Array.from({ length: 50001 }, (_, i) =>
+    `https://instagram.a.fbcdn.net/v${i}.mp4`)), /1–50000/);
 });
 
 test('FFmpeg direct playlist is real-time, normalizes portrait video and copies source audio', () => {

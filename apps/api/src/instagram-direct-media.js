@@ -2,7 +2,7 @@ import { ChannelError } from './channel-store.js';
 import { validateInstagramMediaUrl } from './instagram-media-probe.js';
 import { streamOutputDimensions } from './instagram-output-resolution.js';
 
-const MAX_DIRECT_CLIPS = 100;
+const MAX_DIRECT_CLIPS = 50000;
 
 // These short-lived signed links are supplied only at stream start. Never put
 // the playlist in MySQL, URLs in status/logs, or the concat file in the repo.
