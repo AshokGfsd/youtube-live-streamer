@@ -18,13 +18,15 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 step '1/8' 'Checking and auto-installing missing programs...'
 install_args=()
 if [[ "$file_storage" == true ]]; then install_args+=(--without-mysql); fi
+bash "$repo_dir/scripts/codespaces/install-edge.sh" || fail 'Microsoft Edge installation failed.'
+export STREAMFORGE_BROWSER_BIN="$(command -v microsoft-edge-stable || command -v microsoft-edge)"
 bash "$repo_dir/scripts/codespaces/install-deps.sh" "${install_args[@]}" || fail 'Could not install missing system dependencies.'
 programs=(node npm curl ffmpeg ffprobe tmux Xvfb xdpyinfo openbox x11vnc websockify pulseaudio pactl parec)
 if [[ "$file_storage" == false ]]; then programs+=(mariadb-admin); fi
 for program in "${programs[@]}"; do
   command -v "$program" >/dev/null 2>&1 || fail "$program is still missing after installation."
 done
-browser="$(streamforge_browser_path)" || fail 'A working Chrome browser is required. Run: bash scripts/google-cloud-vm/install-browser.sh'
+browser="$(streamforge_browser_path)" || fail 'A working Microsoft Edge browser is required.'
 echo "Browser selected: $browser"
 [[ -d /usr/share/novnc ]] || fail 'noVNC web files missing; install the novnc package.'
 (( $(node -p 'Number(process.versions.node.split(".")[0])') >= 22 )) || fail 'Node.js 22+ is required.'
@@ -127,7 +129,7 @@ start_session sf-cloud-web-vnc 'websockify --web=/usr/share/novnc 127.0.0.1:6080
 umask 077
 mkdir -p "$app_dir/logs"
 printf -v browser_quoted '%q' "$browser"
-start_session sf-cloud-browser "DISPLAY=:99 $browser_quoted --user-data-dir='$HOME/.streamforge-cloud-chromium' --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --window-position=0,0 --window-size=1366,768 --start-maximized --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --new-window 'https://www.instagram.com/reels/' >> '$app_dir/logs/browser.log' 2>&1"
+start_session sf-cloud-browser "DISPLAY=:99 $browser_quoted --user-data-dir='$HOME/.streamforge-cloud-edge' --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --window-position=0,0 --window-size=1366,768 --start-maximized --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --new-window 'https://www.instagram.com/reels/' >> '$app_dir/logs/browser.log' 2>&1"
 
 # 8. Start the Node.js backend (including MariaDB-backed channel management).
 # Starting services is NOT starting YouTube Live: use the dashboard after login.

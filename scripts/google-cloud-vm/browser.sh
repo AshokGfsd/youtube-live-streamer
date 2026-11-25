@@ -19,7 +19,7 @@ streamforge_browser_path() {
   for candidate in "${candidates[@]}"; do
     if [[ ! -x "$candidate" ]]; then continue; fi
     version="$("$candidate" --version 2>/dev/null)" || continue
-    if [[ "$version" == *Chrome* || "$version" == *Chromium* ]]; then
+    if [[ "$version" == *Chrome* || "$version" == *Chromium* || "$version" == *"Microsoft Edge"* ]]; then
       printf '%s\n' "$candidate"
       return 0
     fi

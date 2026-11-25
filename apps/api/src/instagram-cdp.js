@@ -20,7 +20,7 @@ export function getChromeExecutable() {
       if (candidate && existsSync(candidate)) return candidate;
     }
   } else {
-    const candidates = ['/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium'];
+    const candidates = [...(process.env.INSTAGRAM_DISPLAY === ':99' ? ['/usr/bin/microsoft-edge-stable', '/usr/bin/microsoft-edge'] : []), '/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium'];
     for (const candidate of candidates) {
       if (existsSync(candidate)) return candidate;
     }
@@ -43,7 +43,7 @@ export async function launchPrivateChrome(port = 9222, url = 'https://www.instag
   if (!chromeBin) return false;
 
   const cloudDisplay = process.env.INSTAGRAM_DISPLAY === ':99';
-  const profileDir = path.join(os.homedir(), cloudDisplay ? '.streamforge-cloud-chromium' : 'streamforge-browser-profile');
+  const profileDir = path.join(os.homedir(), cloudDisplay && /microsoft-edge/.test(chromeBin) ? '.streamforge-cloud-edge' : cloudDisplay ? '.streamforge-cloud-chromium' : 'streamforge-browser-profile');
   const args = [
     `--user-data-dir=${profileDir}`,
     '--remote-debugging-address=127.0.0.1',
