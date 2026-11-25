@@ -35,6 +35,7 @@ test('FFmpeg direct playlist is real-time, normalizes portrait video and copies 
   assert.ok(args.includes('[composed]'));
   assert.match(args[args.indexOf('-filter_complex') + 1], /shortest=1:repeatlast=0/);
   assert.ok(!args.includes('x11grab'));
+  assert.ok(!args.includes('-stream_loop'));
   assert.equal(args.at(-1), 'rtmps://a.rtmps.youtube.com/live2/SECRET');
   const once = buildDirectMediaFfmpegArgs({ ...settings, playlistLoop: false, frame: 'none' },
     'rtmps://a.rtmps.youtube.com/live2', 'SECRET', '/tmp/playlist.ffconcat', '/tmp/frame.svg');
@@ -97,7 +98,7 @@ test('silent AAC fallback is used for video-only direct MP4 streams', () => {
 test('direct media mode uses no browser, keeps URL secrets private and removes manifest on stop', async () => {
   let args;
   let child;
-  const settings = validateInstagramSettings({ sourceMode: 'direct', playlistLoop: false });
+  const settings = validateInstagramSettings({ sourceMode: 'direct', playlistLoop: true });
   const manager = new InstagramLiveManager({
     store: {
       pool: { execute: async () => [[{ settings_json: settings }]] },
@@ -172,7 +173,10 @@ test('switching a direct livestream restarts at the chosen clip and keeps the Yo
   assert.deepEqual(switched.directControl, { count: 2, lastSelectedIndex: 1 });
   assert.equal(children.length, 2);
   assert.equal(children[0].exitCode, 0);
-  assert.match(await readFile(manifests[1], 'utf8'), /clip2\.mp4[^\n]*\nfile '[^']*clip1\.mp4/);
+  const switchedManifest = await readFile(manifests[1], 'utf8');
+  assert.match(switchedManifest, /clip2\.mp4/);
+  assert.doesNotMatch(switchedManifest, /clip1\.mp4/);
+  assert.equal(switched.playlist.loop, false);
   await assert.rejects(() => stat(manifests[0]), { code: 'ENOENT' });
 
   const replaced = await manager.switchDirect('id', true, [SECOND], 0);

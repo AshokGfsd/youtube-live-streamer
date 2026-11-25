@@ -70,6 +70,7 @@ export function buildDirectMediaFfmpegArgs(settings, ingestUrl, streamKey, manif
     '-minrate', `${bitrateKbps}k`, '-maxrate', `${bitrateKbps}k`, '-bufsize', `${bitrateKbps * 2}k`,
     '-x264-params', 'nal-hrd=cbr:filler=1',
     '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
+    ...(hasSourceAudio ? [] : ['-shortest']),
     '-f', 'flv', `${ingestUrl.replace(/\/+$/, '')}/${streamKey}`);
 
   return args;

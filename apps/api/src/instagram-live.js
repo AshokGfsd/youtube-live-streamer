@@ -197,6 +197,8 @@ export class InstagramLiveManager {
     // Android FFmpeg builds may not include SVG decoding for the browser-only
     // decorative phone frame. Use the direct video itself on Termux.
     if (this.isTermux) settings.frame = 'none';
+    // Temporary diagnostic mode: direct MP4 playlists must play only once.
+    if (settings.sourceMode === 'direct') settings.playlistLoop = false;
     return validateInstagramSettings(settings);
   }
 
@@ -204,6 +206,7 @@ export class InstagramLiveManager {
     await this.store.getPublic(id);
     const existing = await this.getSettings(id);
     const settings = validateInstagramSettings({ ...existing, ...data });
+    if (settings.sourceMode === 'direct') settings.playlistLoop = false;
     if (this.store.pool) {
       await this.store.pool.execute(`INSERT INTO streamforge_instagram_live (channel_id, settings_json)
         VALUES (?, ?) ON DUPLICATE KEY UPDATE settings_json = VALUES(settings_json)`, [id, JSON.stringify(settings)]);
@@ -387,7 +390,7 @@ export class InstagramLiveManager {
     try {
       const channel = await this.store.get(id);
       const key = await this.store.getStreamKey(id);
-      const settings = { ...(await this.getSettings(id)), sourceMode: 'direct' };
+      const settings = { ...(await this.getSettings(id)), sourceMode: 'direct', playlistLoop: false };
       if (this.sourceMode !== 'direct' || this.activeChannelId !== id || !this.process) {
         throw new ChannelError('The original livestream ended before the switch could start', 409);
       }
@@ -434,7 +437,8 @@ export class InstagramLiveManager {
         this.playlistState = null;
         this.directMediaUrls = [];
         this.directStartIndex = 0;
-        this.error ||= `FFmpeg exited${code === null ? '' : ` (code ${code})`}. Check media URLs and RTMPS connection.`;
+        if (code === 0 && !settings.playlistLoop) this.appendLog('Direct MP4 playlist completed.');
+        else this.error ||= `FFmpeg exited${code === null ? '' : ` (code ${code})`}. Check media URLs and RTMPS connection.`;
       });
       await new Promise((resolve, reject) => {
         child.once('spawn', resolve);
