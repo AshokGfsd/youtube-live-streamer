@@ -29,7 +29,9 @@ test('FFmpeg direct playlist is real-time, normalizes portrait video and copies 
   assert.ok(args.includes('-re'));
   assert.deepEqual(args.slice(args.indexOf('-stream_loop'), args.indexOf('-stream_loop') + 2), ['-stream_loop', '-1']);
   assert.deepEqual(args.slice(args.indexOf('-f'), args.indexOf('-f') + 4), ['-f', 'concat', '-i', '/tmp/private/playlist.ffconcat']);
-  assert.ok(args.includes('0:a:0?'));
+  assert.ok(args.includes('0:a:0'));
+  assert.equal(args[args.indexOf('-b:a') + 1], '128k');
+  assert.equal(args[args.indexOf('-x264-params') + 1], 'nal-hrd=cbr:filler=1');
   assert.ok(args.includes('[composed]'));
   assert.match(args[args.indexOf('-filter_complex') + 1], /shortest=1:repeatlast=0/);
   assert.ok(!args.includes('x11grab'));
@@ -55,6 +57,43 @@ test('direct MP4 output sizes are selectable independently of the virtual browse
   assert.ok(framed.includes('[composed]'));
 });
 
+test('direct MP4 stream emits constant 60fps video with a 12Mbps 1080p preset', () => {
+  const settings = validateInstagramSettings({
+    sourceMode: 'direct', streamResolution: '1080x1920',
+    fps: 60, bitrateKbps: 12000, frame: 'none',
+  });
+  const args = buildDirectMediaFfmpegArgs(settings,
+    'rtmps://a.rtmps.youtube.com/live2', 'SECRET', '/tmp/playlist.ffconcat', '/tmp/frame.png');
+  assert.match(args[args.indexOf('-vf') + 1], /scale=1080:1920/);
+  assert.match(args[args.indexOf('-vf') + 1], /fps=60/);
+  assert.equal(args[args.indexOf('-r') + 1], '60');
+  assert.equal(args[args.indexOf('-g') + 1], '120');
+  assert.equal(args[args.indexOf('-b:v') + 1], '12000k');
+
+  const framed = buildDirectMediaFfmpegArgs({ ...settings, frame: 'iphone' },
+    'rtmps://a.rtmps.youtube.com/live2', 'SECRET', '/tmp/playlist.ffconcat', '/tmp/frame.png');
+  assert.match(framed[framed.indexOf('-filter_complex') + 1], /fps=60,format=yuv420p/);
+});
+
+test('silent AAC fallback is used for video-only direct MP4 streams', () => {
+  const settings = validateInstagramSettings({ sourceMode: 'direct', fps: 60, bitrateKbps: 12000,
+    streamResolution: '1080x1920', frame: 'none' });
+  const args = buildDirectMediaFfmpegArgs(settings,
+    'rtmps://a.rtmps.youtube.com/live2', 'SECRET', '/tmp/playlist.ffconcat', '/tmp/frame.png',
+    { hasSourceAudio: false });
+  assert.ok(args.includes('anullsrc=channel_layout=stereo:sample_rate=44100'));
+  assert.deepEqual(args.filter((arg, index) => args[index - 1] === '-map'),
+    ['0:v:0', '1:a:0']);
+  assert.equal(args[args.indexOf('-b:a') + 1], '128k');
+
+  const framed = buildDirectMediaFfmpegArgs({ ...settings, frame: 'iphone' },
+    'rtmps://a.rtmps.youtube.com/live2', 'SECRET', '/tmp/playlist.ffconcat', '/tmp/frame.png',
+    { hasSourceAudio: false });
+  assert.deepEqual(framed.filter((arg, index) => framed[index - 1] === '-map'),
+    ['[composed]', '2:a:0']);
+  assert.match(framed[framed.indexOf('-filter_complex') + 1], /\[1:v\]/);
+});
+
 test('direct media mode uses no browser, keeps URL secrets private and removes manifest on stop', async () => {
   let args;
   let child;
@@ -67,6 +106,7 @@ test('direct media mode uses no browser, keeps URL secrets private and removes m
       getStreamKey: async () => 'stream-key',
     },
     studio: { runningCount: () => 0, maxStreams: 1 },
+    probeDirectMedia: async () => ({ audio: { codec: 'aac' } }),
     makeController: () => { throw new Error('Direct mode must never open the browser'); },
     spawnProcess: (_command, ffmpegArgs) => {
       args = ffmpegArgs;
@@ -105,6 +145,7 @@ test('switching a direct livestream restarts at the chosen clip and keeps the Yo
       getStreamKey: async () => 'PRIVATE_YOUTUBE_KEY',
     },
     studio: { runningCount: () => 0, maxStreams: 1 },
+    probeDirectMedia: async () => ({ audio: { codec: 'aac' } }),
     makeController: () => { throw new Error('A direct switch must not use the Chrome screen'); },
     spawnProcess: (_name, args) => {
       manifests.push(args[args.indexOf('-f') + 3]);

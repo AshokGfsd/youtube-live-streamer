@@ -24,11 +24,12 @@ export function directMediaManifest(urls) {
   return `ffconcat version 1.0\n${urls.map((url) => `file '${url}'`).join('\n')}\n`;
 }
 
-export function buildDirectMediaFfmpegArgs(settings, ingestUrl, streamKey, manifestPath, framePath) {
+export function buildDirectMediaFfmpegArgs(settings, ingestUrl, streamKey, manifestPath, framePath, { hasSourceAudio = true } = {}) {
   const { width, height } = streamOutputDimensions(settings);
   const { fps, bitrateKbps, frame, mobileLayout, playlistLoop } = settings;
   const phone = mobileLayout && frame === 'iphone';
   const args = ['-hide_banner', '-nostdin', '-loglevel', 'warning', '-re'];
+  // The first clip determines the concat demuxer's audio stream layout.
   if (playlistLoop) args.push('-stream_loop', '-1');
   args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-safe', '0',
     '-f', 'concat', '-i', manifestPath);
@@ -46,21 +47,31 @@ export function buildDirectMediaFfmpegArgs(settings, ingestUrl, streamKey, manif
       `[1:v]scale=${width}:${height}:flags=bicubic,format=rgba[frame];` +
       // The SVG is looped forever; end the overlay with the finite MP4 input
       // when the user has selected "play once".
-      '[reel][frame]overlay=0:0:format=auto:shortest=1:repeatlast=0,format=yuv420p[composed]');
+      `[reel][frame]overlay=0:0:format=auto:shortest=1:repeatlast=0,fps=${fps},format=yuv420p[composed]`);
     args.push('-map', '[composed]');
   } else {
     args.push('-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p`);
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},format=yuv420p`);
     args.push('-map', '0:v:0');
   }
 
-  // The source audio is preserved and encoded to AAC. Video-only sources stay
-  // video-only; mixed audio stream layouts require normalization outside MVP.
-  args.push('-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'ultrafast',
+  // Preserve original audio when present, otherwise add a silent AAC track.
+  // FFmpeg cannot optionally map an absent 0:a input AND conditionally map
+  // lavfi silence, so the caller probes the first video before building args.
+  // The decoration input (if enabled) uses slot 1; silence is appended last.
+  let silenceIndex = null;
+  if (!hasSourceAudio) {
+    silenceIndex = phone ? 2 : 1;
+    args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
+  }
+  args.push('-map', hasSourceAudio ? '0:a:0' : `${silenceIndex}:a:0`,
+    '-c:v', 'libx264', '-preset', 'ultrafast',
     '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-r', String(fps),
     '-g', String(fps * 2), '-b:v', `${bitrateKbps}k`,
-    '-maxrate', `${bitrateKbps}k`, '-bufsize', `${bitrateKbps * 2}k`,
-    '-c:a', 'aac', '-b:a', '96k', '-ar', '44100',
+    '-minrate', `${bitrateKbps}k`, '-maxrate', `${bitrateKbps}k`, '-bufsize', `${bitrateKbps * 2}k`,
+    '-x264-params', 'nal-hrd=cbr:filler=1',
+    '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
     '-f', 'flv', `${ingestUrl.replace(/\/+$/, '')}/${streamKey}`);
+
   return args;
 }

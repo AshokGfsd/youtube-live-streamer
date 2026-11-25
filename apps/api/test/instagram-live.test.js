@@ -26,6 +26,24 @@ test('validates capture dimensions, scroll method, and rights settings', () => {
   assert.equal(validateInstagramSettings({ mobileLayout: false, captureWidth: 960, captureHeight: 540 }).mobileLayout, false);
 });
 
+test('supports 1080p60 output settings and higher bitrate without accepting unsafe values', () => {
+  const selected = validateInstagramSettings({ streamResolution: '1080x1920', fps: 60, bitrateKbps: 12000 });
+  assert.equal(selected.fps, 60);
+  assert.equal(selected.bitrateKbps, 12000);
+  assert.throws(() => validateInstagramSettings({ fps: 61 }), /fps must be between 5 and 60/);
+  assert.throws(() => validateInstagramSettings({ bitrateKbps: 16001 }), /bitrateKbps must be between 300 and 16000/);
+  const args = buildInstagramFfmpegArgs({ fps: 60, bitrateKbps: 12000, frame: 'none', streamResolution: '1080x1920' },
+    'rtmps://a.rtmps.youtube.com/live2', 'test-key');
+  assert.equal(args[args.indexOf('-framerate') + 1], '60');
+  assert.equal(args[args.indexOf('-r') + 1], '60');
+  assert.equal(args[args.indexOf('-g') + 1], '120');
+  assert.equal(args[args.indexOf('-b:v') + 1], '12000k');
+  assert.equal(args[args.indexOf('-minrate') + 1], '12000k');
+  assert.equal(args[args.indexOf('-x264-params') + 1], 'nal-hrd=cbr:filler=1');
+  assert.equal(args[args.indexOf('-b:a') + 1], '128k');
+  assert.match(args[args.indexOf('-vf') + 1], /scale=1080:1920/);
+});
+
 test('Termux defaults to direct media and rejects unsupported browser capture', async () => {
   const manager = new InstagramLiveManager({
     env: { STREAMFORGE_PLATFORM: 'termux', INSTAGRAM_CDP_PORT: '9222' },

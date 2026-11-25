@@ -54,8 +54,8 @@ export function validateInstagramSettings(payload) {
     throw new ChannelError('Mobile Reels requires portrait capture: width must be smaller than height');
   }
   for (const field of ['captureX', 'captureY']) intInRange(input[field], field, 0, 4000);
-  intInRange(input.fps, 'fps', 5, 30);
-  intInRange(input.bitrateKbps, 'bitrateKbps', 300, 5000);
+  intInRange(input.fps, 'fps', 5, 60);
+  intInRange(input.bitrateKbps, 'bitrateKbps', 300, 16000);
   return Object.fromEntries(Object.keys(DEFAULTS).map((key) => [key, input[key]]));
 }
 
@@ -128,8 +128,9 @@ export function buildInstagramFfmpegArgs(settings, ingestUrl, streamKey, display
   args.push('-map', phoneFrame ? '[composed]' : '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'ultrafast',
     '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-r', String(config.fps),
     '-g', String(config.fps * 2), '-b:v', `${config.bitrateKbps}k`,
-    '-maxrate', `${config.bitrateKbps}k`, '-bufsize', `${config.bitrateKbps * 2}k`,
-    '-c:a', 'aac', '-b:a', '96k', '-ar', '44100', '-f', 'flv',
+    '-minrate', `${config.bitrateKbps}k`, '-maxrate', `${config.bitrateKbps}k`, '-bufsize', `${config.bitrateKbps * 2}k`,
+    '-x264-params', 'nal-hrd=cbr:filler=1',
+    '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', '-f', 'flv',
     `${ingestUrl.replace(/\/+$/, '')}/${streamKey}`);
   return args;
 }
@@ -140,10 +141,11 @@ function safeFfmpegMessage(value, key) {
 }
 
 export class InstagramLiveManager {
-  constructor({ store, studio, env = process.env, spawnProcess = spawn, makeController = (options) => new InstagramReelsController(options) }) {
+  constructor({ store, studio, env = process.env, spawnProcess = spawn, probeDirectMedia = null, makeController = (options) => new InstagramReelsController(options) }) {
     this.store = store;
     this.playlist = store.pool ? new InstagramPlaylistStore(store) : new FileInstagramPlaylistStore(store);
     this.mediaProber = new InstagramMediaProber();
+    this.probeDirectMedia = probeDirectMedia || ((url) => this.mediaProber.probe(url));
     this.mediaCollector = new InstagramMediaCollector({ port: Number(env.INSTAGRAM_CDP_PORT || 9222) });
     this.studio = studio;
     this.env = env;
@@ -300,7 +302,11 @@ export class InstagramLiveManager {
         this.mediaTempDir = await mkdtemp(join(tmpdir(), 'streamforge-direct-'));
         const manifest = join(this.mediaTempDir, 'playlist.ffconcat');
         await writeFile(manifest, directMediaManifest(directUrls), { mode: 0o600, flag: 'wx' });
-        args = buildDirectMediaFfmpegArgs(settings, channel.ingestUrl, key, manifest, IPHONE_FRAME);
+        // Inspect the first MP4 so video-only playlists receive a real AAC audio track.
+        // FFmpeg concat expects compatible stream layouts across the playlist.
+        const firstMedia = await this.probeDirectMedia(directUrls[0]);
+        args = buildDirectMediaFfmpegArgs(settings, channel.ingestUrl, key, manifest, IPHONE_FRAME,
+          { hasSourceAudio: Boolean(firstMedia.audio) });
       } else {
         const defaultDisplay = process.platform === 'win32' ? 'desktop' : ':1';
         args = buildInstagramFfmpegArgs(settings, channel.ingestUrl, key,
@@ -348,7 +354,7 @@ export class InstagramLiveManager {
       });
       this.startedAt = new Date().toISOString();
       this.appendLog(directUrls.length
-        ? `Direct MP4 playlist started: ${directUrls.length} clip(s), ${settings.playlistLoop ? 'looping' : 'play once'}. VNC/Chrome is NOT the video source; MP4 audio is used when present.`
+        ? `Direct MP4 playlist started: ${directUrls.length} clip(s), ${settings.playlistLoop ? 'looping' : 'play once'}. MP4 audio is used when available; silent AAC is supplied for video-only playlists.`
         : settings.mobileLayout
         ? `${settings.frame === 'iphone' ? 'iPhone frame around the playing Reel' : 'Mobile screen capture'}; CSS viewport: ${browserState?.viewportWidth ?? '?'}x${browserState?.viewportHeight ?? '?'}; X11 capture: ${settings.captureWidth}x${settings.captureHeight}. Check YouTube Studio.`
         : 'Desktop screen capture started. Reels will scroll after playback ends.');
@@ -409,7 +415,9 @@ export class InstagramLiveManager {
       this.mediaTempDir = await mkdtemp(join(tmpdir(), 'streamforge-direct-'));
       const manifestPath = join(this.mediaTempDir, 'playlist.ffconcat');
       await writeFile(manifestPath, directMediaManifest(ordered), { mode: 0o600, flag: 'wx' });
-      const args = buildDirectMediaFfmpegArgs(settings, channel.ingestUrl, key, manifestPath, IPHONE_FRAME);
+      const firstMedia = await this.probeDirectMedia(ordered[0]);
+      const args = buildDirectMediaFfmpegArgs(settings, channel.ingestUrl, key, manifestPath, IPHONE_FRAME,
+        { hasSourceAudio: Boolean(firstMedia.audio) });
       const child = this.spawnProcess('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
       this.process = child;
       child.stderr?.on('data', (chunk) => {
