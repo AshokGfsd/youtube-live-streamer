@@ -266,8 +266,8 @@ export default function MediaProbePanel({
     setImportWarning("");
     setCopied(false);
     try {
-      if (file.size > 2_000_000)
-        throw new Error("JSON file is too large (limit 2 MB).");
+      if (file.size > 100 * 1024 * 1024)
+        throw new Error("JSON file is too large (limit 100 MiB).");
       const data: unknown = JSON.parse(await file.text());
       const record =
         data && typeof data === "object" && !Array.isArray(data)

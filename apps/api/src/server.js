@@ -102,9 +102,9 @@ app.use(cors((req, callback) => callback(null, {
   allowedHeaders: ['Authorization', 'Content-Type'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'],
 })));
-// An in-memory direct MP4 playlist may include up to 100 signed CDN URLs.
+// Allow larger signed MP4 playlists while keeping a bounded request size.
 // The endpoints still validate each URL and never persist those signed links.
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '100mb' }));
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'streamforge-api', localOnly,
   mysqlConfigured: storageMode === 'mysql' && Boolean(channelStore),
@@ -290,6 +290,9 @@ if (env.WEB_STATIC_DIR) {
 }
 
 app.use((error, req, res, _next) => {
+  if (error.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'JSON request exceeds the 100 MiB limit. Reduce the playlist size and try again.' });
+  }
   const uploadError = error instanceof multer.MulterError;
   const youtubeError = error instanceof YouTubeApiError;
   const channelError = error instanceof ChannelError;
