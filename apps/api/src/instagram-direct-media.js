@@ -34,12 +34,16 @@ export function buildDirectMediaFfmpegArgs(settings, ingestUrl, streamKey, manif
   args.push('-protocol_whitelist', 'file,http,https,tcp,tls,crypto', '-safe', '0',
     '-f', 'concat', '-i', manifestPath);
 
+  // FFmpeg input options must precede all output mapping and filters.
+  if (phone) args.push('-loop', '1', '-framerate', String(fps), '-i', framePath);
+  const silenceIndex = hasSourceAudio ? null : (phone ? 2 : 1);
+  if (!hasSourceAudio) args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
+
   if (phone) {
     const videoWidth = Math.floor(width * 448 / 540 / 2) * 2;
     const videoHeight = Math.floor(height * 796 / 960 / 2) * 2;
     const videoX = Math.floor((width - videoWidth) / 2);
     const videoY = Math.floor((height - videoHeight) / 2);
-    args.push('-loop', '1', '-framerate', String(fps), '-i', framePath);
     args.push('-filter_complex',
       `[0:v]scale=${videoWidth}:${videoHeight}:force_original_aspect_ratio=increase:flags=lanczos,` +
       `crop=${videoWidth}:${videoHeight},setsar=1,` +
@@ -58,12 +62,7 @@ export function buildDirectMediaFfmpegArgs(settings, ingestUrl, streamKey, manif
   // Preserve original audio when present, otherwise add a silent AAC track.
   // FFmpeg cannot optionally map an absent 0:a input AND conditionally map
   // lavfi silence, so the caller probes the first video before building args.
-  // The decoration input (if enabled) uses slot 1; silence is appended last.
-  let silenceIndex = null;
-  if (!hasSourceAudio) {
-    silenceIndex = phone ? 2 : 1;
-    args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
-  }
+  // The decoration input (if enabled) uses slot 1; silence is last.
   args.push('-map', hasSourceAudio ? '0:a:0' : `${silenceIndex}:a:0`,
     '-c:v', 'libx264', '-preset', 'ultrafast',
     '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-r', String(fps),
