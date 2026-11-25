@@ -4,13 +4,28 @@ import {
   InstagramBrowserError,
   launchPrivateChrome,
 } from "./instagram-cdp.js";
-import { validateInstagramMediaUrl } from "./instagram-media-probe.js";
+import { InstagramMediaProber, validateInstagramMediaUrl } from "./instagram-media-probe.js";
+
+const MIN_FPS_CHOICES = [0, 24, 30, 40, 60];
+const MIN_RESOLUTIONS = Object.freeze({ any: null, "480p": [480, 854], "720p": [720, 1280], "1080p": [1080, 1920] });
+
+export function matchesMediaFilters(media, { minFps = 0, minResolution = "any" } = {}) {
+  const { width, height, fps } = media?.video || {};
+  if (minFps && (!Number.isFinite(fps) || fps + 0.1 < minFps)) return false;
+  const minimum = MIN_RESOLUTIONS[minResolution];
+  if (minimum && (!Number.isFinite(width) || !Number.isFinite(height) ||
+      Math.min(width, height) < minimum[0] || Math.max(width, height) < minimum[1])) return false;
+  return true;
+}
+
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function validateMediaSearch(input) {
   const query = input?.query;
   const count = input?.count;
+  const minFps = input?.minFps ?? 0;
+  const minResolution = input?.minResolution ?? "any";
   if (
     typeof query !== "string" ||
     query.trim().length < 2 ||
@@ -24,7 +39,9 @@ export function validateMediaSearch(input) {
   if (!Number.isInteger(count) || count < 0 || count > 50000) {
     throw new ChannelError("Choose a video count of 1 or more (or 0 for unlimited)");
   }
-  return { query: query.trim(), count };
+  if (!MIN_FPS_CHOICES.includes(minFps)) throw new ChannelError("Choose a valid minimum FPS filter");
+  if (!Object.hasOwn(MIN_RESOLUTIONS, minResolution)) throw new ChannelError("Choose a valid minimum resolution filter");
+  return { query: query.trim(), count, minFps, minResolution };
 }
 
 // Only inspect media on the Instagram search page in the user's existing
@@ -138,19 +155,27 @@ export class InstagramMediaCollector {
     closeTab = closeSearchTab,
     connect = DevtoolsSession.connect,
     pause = wait,
+    probeMedia = (url) => new InstagramMediaProber().probe(url),
   } = {}) {
     this.port = port;
     this.createTab = createTab;
     this.closeTab = closeTab;
     this.connect = connect;
     this.pause = pause;
+    this.probeMedia = probeMedia;
     this.phase = "idle";
     this.query = "";
     this.requested = 0;
+    this.minFps = 0;
+    this.minResolution = "any";
+    this.checked = 0;
+    this.rejected = 0;
     this.visited = 0;
     this.error = null;
     this.note = "";
     this.urls = new Map();
+    this.seen = new Set();
+    this.details = new Map();
     this.aborted = false;
     this.session = null;
     this.tabId = null;
@@ -161,6 +186,10 @@ export class InstagramMediaCollector {
       phase: this.phase,
       query: this.query,
       requested: this.requested,
+      minFps: this.minFps,
+      minResolution: this.minResolution,
+      checked: this.checked,
+      rejected: this.rejected,
       found: this.urls.size,
       visited: this.visited,
       error: this.error,
@@ -169,12 +198,13 @@ export class InstagramMediaCollector {
   }
 
   results() {
+    const entries = this.requested > 0
+      ? [...this.urls.entries()].slice(0, this.requested)
+      : [...this.urls.entries()];
     return {
       ...this.status(),
-      directVideoUrls:
-        this.requested > 0
-          ? [...this.urls.values()].slice(0, this.requested)
-          : [...this.urls.values()],
+      directVideoUrls: entries.map(([, url]) => url),
+      videoDetails: entries.map(([key]) => this.details.get(key) ?? null),
     };
   }
 
@@ -184,13 +214,19 @@ export class InstagramMediaCollector {
         "An Instagram link collection is already running",
         409,
       );
-    const { query, count } = validateMediaSearch(input);
+    const { query, count, minFps, minResolution } = validateMediaSearch(input);
     this.query = query;
     this.requested = count;
+    this.minFps = minFps;
+    this.minResolution = minResolution;
+    this.checked = 0;
+    this.rejected = 0;
     this.visited = 0;
     this.error = null;
     this.note = "";
     this.urls.clear();
+    this.seen.clear();
+    this.details.clear();
     this.aborted = false;
     this.phase = "running";
     void this.run().catch((error) => {
@@ -205,22 +241,63 @@ export class InstagramMediaCollector {
     return this.status();
   }
 
-  capture(items) {
+  async capture(items) {
     const targetCount = this.requested > 0 ? this.requested : Infinity;
+    const filtered = this.minFps > 0 || this.minResolution !== "any";
+    const candidates = [];
     for (const item of items || []) {
-      if (this.urls.size >= targetCount) break;
-      for (const candidate of Array.isArray(item.urls)
-        ? item.urls
-        : [item.url]) {
+      if (this.aborted || this.urls.size >= targetCount || candidates.length >= 24) break;
+      for (const candidate of Array.isArray(item.urls) ? item.urls : [item.url]) {
         try {
           const url = validateInstagramMediaUrl(candidate);
           const parsed = new URL(url);
-          this.urls.set(parsed.origin + parsed.pathname, url);
+          const key = parsed.origin + parsed.pathname;
+          if (!this.seen.has(key)) {
+            this.seen.add(key);
+            candidates.push({ key, url });
+          }
           break;
         } catch {
-          /* Blob URLs, placeholder videos, or non-CDN media are skipped. */
+          // Blob URLs, placeholder videos and non-CDN sources are skipped.
         }
       }
+      if (!filtered && this.urls.size + candidates.length >= targetCount) break;
+    }
+    if (!filtered) {
+      for (const { key, url } of candidates) this.urls.set(key, url);
+      return;
+    }
+
+    // Only probe vetted Instagram CDN URLs. Three simultaneous FFprobe jobs
+    // keep the scan responsive without overwhelming the Codespace/network.
+    const outcomes = new Array(candidates.length);
+    let cursor = 0;
+    const worker = async () => {
+      while (!this.aborted && cursor < candidates.length) {
+        const index = cursor++;
+        try {
+          const media = await this.probeMedia(candidates[index].url);
+          this.checked++;
+          if (matchesMediaFilters(media, this)) {
+            outcomes[index] = {
+              ...candidates[index],
+              details: { width: media.video.width, height: media.video.height, fps: media.video.fps },
+            };
+          } else this.rejected++;
+        } catch {
+          // Expired or restricted signed links count as rejected; never expose
+          // their query tokens through status, errors, or logs.
+          this.checked++;
+          this.rejected++;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, candidates.length) }, worker));
+    if (this.aborted) return;
+    for (const outcome of outcomes) {
+      if (!outcome || this.urls.size >= targetCount) continue;
+      this.urls.set(outcome.key, outcome.url);
+      this.details.set(outcome.key, outcome.details);
     }
   }
 
@@ -268,7 +345,7 @@ export class InstagramMediaCollector {
           );
         }
         const previous = this.urls.size;
-        this.capture(page.videos);
+        await this.capture(page.videos);
         for (const tile of (page.tiles || []).slice(0, 5)) {
           if (this.aborted || this.urls.size >= targetCount) break;
           if (hovered.has(tile.href)) continue;
@@ -279,7 +356,7 @@ export class InstagramMediaCollector {
             y: tile.y,
           });
           await this.pause(180);
-          this.capture((await this.inspect()).videos);
+          await this.capture((await this.inspect()).videos);
         }
         this.visited = scan + 1;
         noProgress = this.urls.size === previous ? noProgress + 1 : 0;
@@ -292,8 +369,12 @@ export class InstagramMediaCollector {
           await this.session.evaluate(SCROLL_RESULTS);
       }
       if (!this.aborted) {
+        if (this.minFps || this.minResolution !== "any") {
+          this.note = `${this.checked} inspected with FFprobe; ${this.rejected} skipped (quality mismatch or inaccessible media).`;
+        }
         this.phase = "completed";
-        this.note ||=
+        this.note += this.note ? " " : "";
+        this.note +=
           targetCount === Infinity
             ? `Collected ${this.urls.size} direct MP4 URLs (unlimited mode).`
             : this.urls.size < targetCount

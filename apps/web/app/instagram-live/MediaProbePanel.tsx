@@ -36,6 +36,10 @@ type CollectorStatus = {
   phase: "idle" | "running" | "completed" | "failed" | "stopped";
   query: string;
   requested: number;
+  minFps?: number;
+  minResolution?: string;
+  checked?: number;
+  rejected?: number;
   found: number;
   visited: number;
   error: string | null;
@@ -80,6 +84,8 @@ export default function MediaProbePanel({
   const [error, setError] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
   const [searchCount, setSearchCount] = useState(20);
+  const [minSourceFps, setMinSourceFps] = useState(0);
+  const [minSourceResolution, setMinSourceResolution] = useState("any");
   const [collector, setCollector] = useState<CollectorStatus | null>(null);
   const [collectBusy, setCollectBusy] = useState(false);
 
@@ -96,7 +102,9 @@ export default function MediaProbePanel({
         onDirectActiveChange(true);
       } else if (results.phase === "completed") {
         setError(
-          "No direct MP4 elements were exposed by Instagram. Sign in, try another keyword, or use manual JSON import.",
+          results.checked && (results.minFps || results.minResolution !== "any")
+            ? `No playable MP4s matched the requested source FPS and resolution (${results.checked} inspected). Try a lower threshold or another topic.`
+            : "No direct MP4 elements were exposed by Instagram. Sign in, try another keyword, or use manual JSON import.",
         );
       }
     },
@@ -174,6 +182,8 @@ export default function MediaProbePanel({
           body: JSON.stringify({
             query: searchKeyword.trim(),
             count: searchCount,
+            minFps: minSourceFps,
+            minResolution: minSourceResolution,
           }),
         },
       );
@@ -393,6 +403,42 @@ export default function MediaProbePanel({
                 />
               </div>
             </div>
+            <div className="il-two-cols">
+              <div>
+                <label className="il-label" htmlFor="il-filter-source-fps">Minimum source FPS</label>
+                <select
+                  id="il-filter-source-fps"
+                  value={minSourceFps}
+                  onChange={(event) => setMinSourceFps(Number(event.target.value))}
+                  disabled={liveLocked || collectBusy || collector?.phase === "running"}
+                >
+                  <option value={0}>Any FPS</option>
+                  <option value={24}>24 FPS or higher</option>
+                  <option value={30}>30 FPS or higher</option>
+                  <option value={40}>40 FPS or higher</option>
+                  <option value={60}>60 FPS or higher</option>
+                </select>
+              </div>
+              <div>
+                <label className="il-label" htmlFor="il-filter-source-resolution">Minimum source resolution</label>
+                <select
+                  id="il-filter-source-resolution"
+                  value={minSourceResolution}
+                  onChange={(event) => setMinSourceResolution(event.target.value)}
+                  disabled={liveLocked || collectBusy || collector?.phase === "running"}
+                >
+                  <option value="any">Any resolution</option>
+                  <option value="480p">480p (480 × 854) or higher</option>
+                  <option value="720p">720p (720 × 1280) or higher</option>
+                  <option value="1080p">1080p (1080 × 1920) or higher</option>
+                </select>
+              </div>
+            </div>
+            <p className="il-hint">
+              Optional filters check each candidate MP4 with server-side FFprobe <b>before adding it to the playlist</b>.
+              Portrait and landscape videos both work; 29.97 FPS counts as 30 FPS.
+              Unknown metadata or expired URLs are skipped. Filtering can take longer.
+            </p>
             <div className="il-playlist-actions">
               <button
                 type="button"
@@ -448,6 +494,9 @@ export default function MediaProbePanel({
                   </b>
                   <span>
                     {collector.phase} · {collector.visited} scroll passes
+                    {collector.minFps || (collector.minResolution && collector.minResolution !== "any")
+                      ? ` · ${collector.checked ?? 0} inspected · ${collector.rejected ?? 0} skipped`
+                      : ""}
                   </span>
                 </div>
                 <progress
