@@ -101,10 +101,10 @@ start_session() {
   fi
 }
 
-# 6. Start the virtual phone-size screen and window manager.
-step '6/8' 'Starting Xvfb :99 at 540x960 and Openbox...'
+# 6. Start the virtual landscape screen and window manager.
+step '6/8' 'Starting Xvfb :99 at 1366x768 and Openbox...'
 if ! xdpyinfo -display :99 >/dev/null 2>&1; then
-  start_session sf-cloud-display 'Xvfb :99 -screen 0 540x960x24 -nolisten tcp'
+  start_session sf-cloud-display 'Xvfb :99 -screen 0 1366x768x24 -nolisten tcp'
 else
   echo 'X11 display :99 already active; reusing it.'
 fi
@@ -127,7 +127,7 @@ start_session sf-cloud-web-vnc 'websockify --web=/usr/share/novnc 127.0.0.1:6080
 umask 077
 mkdir -p "$app_dir/logs"
 printf -v browser_quoted '%q' "$browser"
-start_session sf-cloud-browser "DISPLAY=:99 $browser_quoted --user-data-dir='$HOME/.streamforge-cloud-chromium' --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --window-position=0,0 --window-size=540,960 --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --new-window 'https://www.instagram.com/reels/' >> '$app_dir/logs/browser.log' 2>&1"
+start_session sf-cloud-browser "DISPLAY=:99 $browser_quoted --user-data-dir='$HOME/.streamforge-cloud-chromium' --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --window-position=0,0 --window-size=1366,768 --start-maximized --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --new-window 'https://www.instagram.com/reels/' >> '$app_dir/logs/browser.log' 2>&1"
 
 # 8. Start the Node.js backend (including MariaDB-backed channel management).
 # Starting services is NOT starting YouTube Live: use the dashboard after login.

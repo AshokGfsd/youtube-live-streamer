@@ -42,21 +42,23 @@ export async function launchPrivateChrome(port = 9222, url = 'https://www.instag
   const chromeBin = getChromeExecutable();
   if (!chromeBin) return false;
 
-  const profileDir = path.join(os.homedir(), 'streamforge-browser-profile');
+  const cloudDisplay = process.env.INSTAGRAM_DISPLAY === ':99';
+  const profileDir = path.join(os.homedir(), cloudDisplay ? '.streamforge-cloud-chromium' : 'streamforge-browser-profile');
   const args = [
     `--user-data-dir=${profileDir}`,
     '--remote-debugging-address=127.0.0.1',
     `--remote-debugging-port=${port}`,
     '--remote-allow-origins=*',
     '--window-position=0,0',
-    '--window-size=540,960',
+    '--window-size=1366,768',
+    '--start-maximized',
     '--no-first-run',
     '--no-default-browser-check',
     url,
   ];
 
   try {
-    const child = spawn(chromeBin, args, { detached: true, stdio: 'ignore' });
+    const child = spawn(chromeBin, args, { detached: true, stdio: 'ignore', env: { ...process.env, ...(cloudDisplay ? { DISPLAY: ':99' } : {}) } });
     child.unref();
   } catch {
     return false;
